@@ -1,0 +1,5 @@
+NAME = "层段"
+DESCRIPTION = "二期开发的层段控件"
+BACKGROUND = "#D9E8FF"
+ICON = ""
+PRIORITY = 20

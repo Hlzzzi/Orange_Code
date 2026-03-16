@@ -58,6 +58,7 @@ ENTRY_POINTS = {
         #    orangecontrib/example/widgets/__init__.py
         #
         # * 注意: 在这里设置的分类可以被小部件文件中的分类覆盖
+        "层段 = orangecontrib.interval",
         "井筒数字岩心大数据分析 = orangecontrib.src",
     ),
     # Register widget help
