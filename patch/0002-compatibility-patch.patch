@@ -1,0 +1,25 @@
+From 211c617212bf402b00ecaa10e267c6ae654ce097 Mon Sep 17 00:00:00 2001
+From: hoywu <wu_git@outlook.com>
+Date: Fri, 7 Jun 2024 17:27:54 +0800
+Subject: [PATCH] compatibility patch
+
+---
+ requirements-core.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/requirements-core.txt b/requirements-core.txt
+index 74b21a2..0f6370c 100644
+--- a/requirements-core.txt
++++ b/requirements-core.txt
+@@ -22,7 +22,7 @@ python-louvain>=0.13
+ requests
+ openTSNE>=0.6.1
+ baycomp>=1.0.2
+-pandas>=1.3.0
++pandas>=1.3.0,<2
+ pyyaml
+ openpyxl
+ httpx>=0.21.0
+-- 
+2.45.2
+

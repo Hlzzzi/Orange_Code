@@ -1,0 +1,40 @@
+<?xml version='1.0' encoding='utf-8'?>
+<scheme version="2.0" title="" description="">
+	<nodes>
+		<node id="0" name="测井资料标准化自动处理" qualified_name="orangecontrib.ATest.测井资料标准化自动处理.Widget" project_name="Add-on" version="" title="测井资料标准化自动处理" position="(348.0, 355.0)" />
+		<node id="1" name="测井数据加载" qualified_name="orangecontrib.DataLoad.widgets.LasDataLoad.lasdata" project_name="Add-on" version="" title="测井数据加载" position="(72.0, 310.0)" />
+		<node id="2" name="测井数据加载" qualified_name="orangecontrib.DataLoad.widgets.LasDataLoad.lasdata" project_name="Add-on" version="" title="分层数据加载" position="(71.0, 438.0)" />
+		<node id="3" name="Python Script" qualified_name="Orange.widgets.data.owpythonscript.OWPythonScript" project_name="Orange3" version="" title="Python Script" position="(468.0, 246.0)" />
+		<node id="4" name="Data Table" qualified_name="Orange.widgets.data.owtable.OWDataTable" project_name="Orange3" version="" title="Data Table" position="(585.0, 351.0)" />
+		<node id="5" name="测井数据加载" qualified_name="orangecontrib.DataLoad.widgets.LasDataLoad.lasdata" project_name="Add-on" version="" title="实验数据加载" position="(72.0, 48.0)" />
+		<node id="6" name="测井数据加载" qualified_name="orangecontrib.DataLoad.widgets.LasDataLoad.lasdata" project_name="Add-on" version="" title="分层处理数据加载" position="(74.0, 171.0)" />
+		<node id="7" name="实验数据去重处理" qualified_name="orangecontrib.ATest.实验数据去重处理.Widget" project_name="Add-on" version="" title="实验数据去重处理" position="(346.0, 89.0)" />
+		<node id="8" name="Data Table" qualified_name="Orange.widgets.data.owtable.OWDataTable" project_name="Orange3" version="" title="Data Table (1)" position="(573.0, 88.0)" />
+	</nodes>
+	<links>
+		<link id="0" source_node_id="1" sink_node_id="0" source_channel="Table_list" sink_channel="Table_listA_测井数据" enabled="true" />
+		<link id="1" source_node_id="1" sink_node_id="0" source_channel="file_name_list" sink_channel="file_name_list_井名列表" enabled="true" />
+		<link id="2" source_node_id="2" sink_node_id="0" source_channel="Table_list" sink_channel="Table_listB_分层数据" enabled="true" />
+		<link id="3" source_node_id="0" sink_node_id="3" source_channel="Data" sink_channel="Object" enabled="true" />
+		<link id="4" source_node_id="3" sink_node_id="4" source_channel="Data" sink_channel="Data" enabled="true" />
+		<link id="5" source_node_id="5" sink_node_id="7" source_channel="Table_list" sink_channel="Table_list_实验数据" enabled="true" />
+		<link id="6" source_node_id="6" sink_node_id="7" source_channel="Table_list" sink_channel="Table_list_页岩油分层处理数据" enabled="true" />
+		<link id="7" source_node_id="7" sink_node_id="8" source_channel="Data" sink_channel="Data" enabled="true" />
+	</links>
+	<annotations />
+	<thumbnail />
+	<node_properties>
+		<properties node_id="0" format="literal">{'auto_send': False, 'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x01\xe5\x00\x00\x00k\x00\x00\x04\x8b\x00\x00\x03\x87\x00\x00\x01\xe6\x00\x00\x00\x89\x00\x00\x04\x8a\x00\x00\x03\x86\x00\x00\x00\x00\x00\x00\x00\x00\x06n\x00\x00\x01\xe6\x00\x00\x00\x89\x00\x00\x04\x8a\x00\x00\x03\x86', '__version__': 1}</properties>
+		<properties node_id="1" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x01\xf7\x00\x00\x00\xfa\x00\x00\x04x\x00\x00\x02\xf8\x00\x00\x01\xf8\x00\x00\x01\x18\x00\x00\x04w\x00\x00\x02\xf7\x00\x00\x00\x00\x00\x00\x00\x00\x06n\x00\x00\x01\xf8\x00\x00\x01\x18\x00\x00\x04w\x00\x00\x02\xf7', '__version__': 1}</properties>
+		<properties node_id="2" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x01\xf7\x00\x00\x00\xfa\x00\x00\x04x\x00\x00\x02\xf8\x00\x00\x01\xf8\x00\x00\x01\x18\x00\x00\x04w\x00\x00\x02\xf7\x00\x00\x00\x00\x00\x00\x00\x00\x06n\x00\x00\x01\xf8\x00\x00\x01\x18\x00\x00\x04w\x00\x00\x02\xf7', '__version__': 1}</properties>
+		<properties node_id="3" format="literal">{'controlAreaVisible': True, 'currentScriptIndex': 0, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x00\x1d\x00\x00\x01\x9d\x00\x00\x03\x18\x00\x00\x03\x9b\x00\x00\x00\x1e\x00\x00\x01\xbb\x00\x00\x03\x17\x00\x00\x03\x9a\x00\x00\x00\x00\x00\x00\x00\x00\x06n\x00\x00\x00\x1e\x00\x00\x01\xbb\x00\x00\x03\x17\x00\x00\x03\x9a', 'scriptLibrary': [{'name': 'Table from numpy', 'script': 'import numpy as np\nfrom Orange.data import Table, Domain, ContinuousVariable, DiscreteVariable\n\nout_data = in_object[0]\n', 'filename': None}], 'scriptText': 'import numpy as np\nfrom Orange.data import Table, Domain, ContinuousVariable, DiscreteVariable\n\nprint(len(in_object))\nout_data = in_object[0]\n', 'splitterState': b'\x00\x00\x00\xff\x00\x00\x00\x01\x00\x00\x00\x02\x00\x00\x00\x9b\x00\x00\x00[\x01\xff\xff\xff\xff\x01\x00\x00\x00\x02\x00', 'vimModeEnabled': False, '__version__': 2}</properties>
+		<properties node_id="4" format="literal">{'auto_commit': True, 'color_by_class': True, 'controlAreaVisible': True, 'dist_color_RGB': (220, 220, 220, 255), 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x01_\x00\x00\x00\xc7\x00\x00\x05\x04\x00\x00\x03#\x00\x00\x01`\x00\x00\x00\xe5\x00\x00\x05\x03\x00\x00\x03"\x00\x00\x00\x00\x00\x00\x00\x00\x06n\x00\x00\x01`\x00\x00\x00\xe5\x00\x00\x05\x03\x00\x00\x03"', 'select_rows': True, 'selected_cols': [], 'selected_rows': [], 'show_attribute_labels': True, 'show_distributions': False, '__version__': 2}</properties>
+		<properties node_id="5" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x01\xf8\x00\x00\x01\x18\x00\x00\x04w\x00\x00\x02\xf7\x00\x00\x01\xf8\x00\x00\x01\x18\x00\x00\x04w\x00\x00\x02\xf7\x00\x00\x00\x00\x00\x00\x00\x00\x06n\x00\x00\x01\xf8\x00\x00\x01\x18\x00\x00\x04w\x00\x00\x02\xf7', '__version__': 1}</properties>
+		<properties node_id="6" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x01\xf7\x00\x00\x00\xfa\x00\x00\x04x\x00\x00\x02\xf8\x00\x00\x01\xf8\x00\x00\x01\x18\x00\x00\x04w\x00\x00\x02\xf7\x00\x00\x00\x00\x00\x00\x00\x00\x06n\x00\x00\x01\xf8\x00\x00\x01\x18\x00\x00\x04w\x00\x00\x02\xf7', '__version__': 1}</properties>
+		<properties node_id="7" format="literal">{'auto_send': False, 'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x01\xf8\x00\x00\x01\x18\x00\x00\x04w\x00\x00\x02\xf7\x00\x00\x01\xf8\x00\x00\x01\x18\x00\x00\x04w\x00\x00\x02\xf7\x00\x00\x00\x00\x00\x00\x00\x00\x06n\x00\x00\x01\xf8\x00\x00\x01\x18\x00\x00\x04w\x00\x00\x02\xf7', '__version__': 1}</properties>
+		<properties node_id="8" format="literal">{'auto_commit': True, 'color_by_class': True, 'controlAreaVisible': True, 'dist_color_RGB': (220, 220, 220, 255), 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x00\xd6\x00\x00\x00\xe7\x00\x00\x04\x94\x00\x00\x03&gt;\x00\x00\x00\xd7\x00\x00\x01\x05\x00\x00\x04\x93\x00\x00\x03=\x00\x00\x00\x00\x00\x00\x00\x00\x06n\x00\x00\x00\xd7\x00\x00\x01\x05\x00\x00\x04\x93\x00\x00\x03=', 'select_rows': True, 'selected_cols': None, 'selected_rows': None, 'show_attribute_labels': True, 'show_distributions': False, '__version__': 2}</properties>
+	</node_properties>
+	<session_state>
+		<window_groups />
+	</session_state>
+</scheme>

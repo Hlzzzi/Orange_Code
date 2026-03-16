@@ -1,0 +1,6 @@
+{
+  "python.analysis.exclude": [
+    "orange3",
+    "venv"
+  ]
+}

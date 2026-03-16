@@ -1,0 +1,6 @@
+lasio
+seaborn
+cython==0.29.30
+tensorflow
+scikit-image
+statsmodels==0.14.1

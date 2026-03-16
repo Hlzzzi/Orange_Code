@@ -1,0 +1,68 @@
+<?xml version='1.0' encoding='utf-8'?>
+<scheme version="2.0" title="" description="">
+	<nodes>
+		<node id="0" name="测井数据加载" qualified_name="orangecontrib.src.LasDataLoad.lasdata" project_name="Add-on" version="" title="岩性" position="(-256.1328671328671, -193.4685314685314)" />
+		<node id="1" name="测井数据加载" qualified_name="orangecontrib.src.LasDataLoad.lasdata" project_name="Add-on" version="" title="曲线" position="(-394.18181818181813, -332.0)" />
+		<node id="2" name="测井数据加载" qualified_name="orangecontrib.src.LasDataLoad.lasdata" project_name="Add-on" version="" title="油层组" position="(-403.6783216783216, -255.5804195804196)" />
+		<node id="3" name="多文件层段数据链接" qualified_name="orangecontrib.src.多文件层段数据链接.cengduan" project_name="Add-on" version="" title="多文件层段数据链接" position="(-236.90909090909088, -307.27272727272725)" />
+		<node id="4" name="单文件层段数据链接" qualified_name="orangecontrib.src.单文件层段数据链接.Widget" project_name="Add-on" version="" title="单文件层段数据链接" position="(-29.909090909090963, -268.27272727272725)" />
+		<node id="5" name="数据筛选器" qualified_name="orangecontrib.src.数据筛选器.Widget" project_name="Add-on" version="" title="数据筛选器" position="(109.90909090909082, -263.6363636363636)" />
+		<node id="6" name="分类异常值去除器" qualified_name="orangecontrib.src.分类异常值去除器.Widget" project_name="Add-on" version="" title="分类异常值去除器" position="(276.72727272727275, -261.81818181818176)" />
+		<node id="7" name="层次聚类" qualified_name="orangecontrib.src.层次聚类.Widget" project_name="Add-on" version="" title="层次聚类" position="(451.81818181818176, -243.90909090909088)" />
+		<node id="8" name="分类-机器学习训练" qualified_name="orangecontrib.src.分类_机器学习训练.Widget" project_name="Add-on" version="" title="分类-机器学习训练" position="(625.5, -239.75)" />
+		<node id="9" name="分类-机器学习评估" qualified_name="orangecontrib.src.分类-机器学习评估.Widget" project_name="Add-on" version="" title="分类-机器学习评估" position="(827.0, -240.0)" />
+		<node id="10" name="测井数据加载" qualified_name="orangecontrib.src.LasDataLoad.lasdata" project_name="Add-on" version="" title="加载评估数据" position="(620.5, -345.75)" />
+		<node id="11" name="分类-机器学习应用" qualified_name="orangecontrib.src.分类_机器学习应用.Widget" project_name="Add-on" version="" title="分类-机器学习应用" position="(961.0, -237.0)" />
+		<node id="12" name="测井数据加载" qualified_name="orangecontrib.src.LasDataLoad.lasdata" project_name="Add-on" version="" title="加载应用数据" position="(803.0, -378.5)" />
+		<node id="13" name="顶底深度数据计算" qualified_name="orangecontrib.src.顶底深度数据计算.Widget" project_name="Add-on" version="" title="顶底深度数据计算" position="(1131.0, -226.75)" />
+		<node id="14" name="数据表(Data Table)" qualified_name="Orange.widgets.data.owtable.OWDataTable" project_name="Orange3-zh" version="" title="数据表(Data Table) (1)" position="(1300.25, -230.5)" />
+		<node id="15" name="测试Table" qualified_name="orangecontrib.src.Table.OWDataTable" project_name="Add-on" version="" title="测试Table" position="(1109.0, -339.0)" />
+	</nodes>
+	<links>
+		<link id="0" source_node_id="1" sink_node_id="3" source_channel="file_name_list" sink_channel="钻测录井名" enabled="true" />
+		<link id="1" source_node_id="1" sink_node_id="3" source_channel="Table_list" sink_channel="钻测录数据" enabled="true" />
+		<link id="2" source_node_id="2" sink_node_id="3" source_channel="Table_list" sink_channel="目标类数据" enabled="true" />
+		<link id="3" source_node_id="3" sink_node_id="4" source_channel="数据List" sink_channel="单表数据" enabled="true" />
+		<link id="4" source_node_id="4" sink_node_id="5" source_channel="数据List" sink_channel="数据" enabled="true" />
+		<link id="5" source_node_id="5" sink_node_id="6" source_channel="数据List" sink_channel="数据" enabled="true" />
+		<link id="6" source_node_id="0" sink_node_id="4" source_channel="Table_list" sink_channel="层段数据" enabled="true" />
+		<link id="7" source_node_id="7" sink_node_id="8" source_channel="层次聚类成果数据" sink_channel="数据大表" enabled="true" />
+		<link id="8" source_node_id="8" sink_node_id="9" source_channel="All_Model_Path" sink_channel="模型路径" enabled="true" />
+		<link id="9" source_node_id="8" sink_node_id="9" source_channel="All_Models" sink_channel="模型输入" enabled="true" />
+		<link id="10" source_node_id="10" sink_node_id="9" source_channel="file_path" sink_channel="数据路径" enabled="true" />
+		<link id="11" source_node_id="9" sink_node_id="11" source_channel="all_model" sink_channel="模型输入" enabled="true" />
+		<link id="12" source_node_id="9" sink_node_id="11" source_channel="all_model_Path" sink_channel="模型路径" enabled="true" />
+		<link id="13" source_node_id="12" sink_node_id="11" source_channel="file_path" sink_channel="数据路径" enabled="true" />
+		<link id="14" source_node_id="11" sink_node_id="13" source_channel="数据名" sink_channel="文件名" enabled="true" />
+		<link id="15" source_node_id="11" sink_node_id="13" source_channel="数据" sink_channel="数据" enabled="true" />
+		<link id="16" source_node_id="13" sink_node_id="14" source_channel="数据(Data)" sink_channel="数据(Data)" enabled="true" />
+		<link id="17" source_node_id="6" sink_node_id="7" source_channel="路径" sink_channel="数据path" enabled="true" />
+		<link id="18" source_node_id="6" sink_node_id="7" source_channel="数据List" sink_channel="数据" enabled="true" />
+		<link id="19" source_node_id="8" sink_node_id="9" source_channel="参数" sink_channel="参数" enabled="true" />
+		<link id="20" source_node_id="9" sink_node_id="11" source_channel="参数" sink_channel="参数" enabled="true" />
+		<link id="21" source_node_id="11" sink_node_id="15" source_channel="多数据表格" sink_channel="TableList" enabled="true" />
+	</links>
+	<annotations />
+	<thumbnail />
+	<node_properties>
+		<properties node_id="0" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x024\x00\x00\x00m\x00\x00\x04u\x00\x00\x03\x0c\x00\x00\x025\x00\x00\x00\x8c\x00\x00\x04t\x00\x00\x03\x0b\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x025\x00\x00\x00\x8c\x00\x00\x04t\x00\x00\x03\x0b', '__version__': 1}</properties>
+		<properties node_id="1" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x024\x00\x00\x00m\x00\x00\x04u\x00\x00\x03\x0c\x00\x00\x025\x00\x00\x00\x8c\x00\x00\x04t\x00\x00\x03\x0b\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x025\x00\x00\x00\x8c\x00\x00\x04t\x00\x00\x03\x0b', '__version__': 1}</properties>
+		<properties node_id="2" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x024\x00\x00\x00m\x00\x00\x04u\x00\x00\x03\x0c\x00\x00\x025\x00\x00\x00\x8c\x00\x00\x04t\x00\x00\x03\x0b\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x025\x00\x00\x00\x8c\x00\x00\x04t\x00\x00\x03\x0b', '__version__': 1}</properties>
+		<properties node_id="3" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02B\x00\x00\x00\xd1\x00\x00\x04i\x00\x00\x02\xe4\x00\x00\x02C\x00\x00\x00\xf0\x00\x00\x04h\x00\x00\x02\xe3\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x02C\x00\x00\x00\xf0\x00\x00\x04h\x00\x00\x02\xe3', '__version__': 1}</properties>
+		<properties node_id="4" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02B\x00\x00\x00\xd1\x00\x00\x04i\x00\x00\x02\xe4\x00\x00\x02C\x00\x00\x00\xf0\x00\x00\x04h\x00\x00\x02\xe3\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x02C\x00\x00\x00\xf0\x00\x00\x04h\x00\x00\x02\xe3', '__version__': 1}</properties>
+		<properties node_id="5" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02\x14\x00\x00\x00\xef\x00\x00\x05k\x00\x00\x03\x02\x00\x00\x02\x15\x00\x00\x01\x0e\x00\x00\x05j\x00\x00\x03\x01\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x02\x15\x00\x00\x01\x0e\x00\x00\x05j\x00\x00\x03\x01', '__version__': 1}</properties>
+		<properties node_id="6" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x01q\x00\x00\x00\xe9\x00\x00\x05-\x00\x00\x03\x02\x00\x00\x01r\x00\x00\x01\x08\x00\x00\x05,\x00\x00\x03\x01\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x01r\x00\x00\x01\x08\x00\x00\x05,\x00\x00\x03\x01', '__version__': 1}</properties>
+		<properties node_id="7" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x03\x1b\x00\x00\x00Z\x00\x00\x05\xe8\x00\x00\x03\xa8\x00\x00\x03\x1c\x00\x00\x00y\x00\x00\x05\xe7\x00\x00\x03\xa7\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x03\x1c\x00\x00\x00y\x00\x00\x05\xe7\x00\x00\x03\xa7', '__version__': 1}</properties>
+		<properties node_id="8" format="literal">{'controlAreaVisible': True, 'crossVaRadio': 2, 'optimizerRadio': 0, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x026\x00\x00\x00\x83\x00\x00\x05\x8d\x00\x00\x02\xfc\x00\x00\x027\x00\x00\x00\xa2\x00\x00\x05\x8c\x00\x00\x02\xfb\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x027\x00\x00\x00\xa2\x00\x00\x05\x8c\x00\x00\x02\xfb', '__version__': 1}</properties>
+		<properties node_id="9" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x03\x02\x00\x00\x024\x00\x00\x04\xf4\x00\x00\x03}\x00\x00\x03\x03\x00\x00\x02S\x00\x00\x04\xf3\x00\x00\x03|\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x03\x03\x00\x00\x02S\x00\x00\x04\xf3\x00\x00\x03|', '__version__': 1}</properties>
+		<properties node_id="10" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x03,\x00\x00\x00\xf4\x00\x00\x05m\x00\x00\x03\x93\x00\x00\x03-\x00\x00\x01\x13\x00\x00\x05l\x00\x00\x03\x92\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x03-\x00\x00\x01\x13\x00\x00\x05l\x00\x00\x03\x92', '__version__': 1}</properties>
+		<properties node_id="11" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02\xd1\x00\x00\x01\x84\x00\x00\x04\xf8\x00\x00\x03\x01\x00\x00\x02\xd2\x00\x00\x01\xa3\x00\x00\x04\xf7\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x02\xd2\x00\x00\x01\xa3\x00\x00\x04\xf7\x00\x00\x03\x00', '__version__': 1}</properties>
+		<properties node_id="12" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x03,\x00\x00\x00\xf4\x00\x00\x05m\x00\x00\x03\x93\x00\x00\x03-\x00\x00\x01\x13\x00\x00\x05l\x00\x00\x03\x92\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x03-\x00\x00\x01\x13\x00\x00\x05l\x00\x00\x03\x92', '__version__': 1}</properties>
+		<properties node_id="13" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x01\x98\x00\x00\x00\xde\x00\x00\x04\xd9\x00\x00\x02\xfc\x00\x00\x01\x99\x00\x00\x00\xfd\x00\x00\x04\xd8\x00\x00\x02\xfb\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x01\x99\x00\x00\x00\xfd\x00\x00\x04\xd8\x00\x00\x02\xfb', '__version__': 1}</properties>
+		<properties node_id="14" format="literal">{'auto_commit': True, 'color_by_class': False, 'controlAreaVisible': True, 'dist_color_RGB': (220, 220, 220, 255), 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x01o\x00\x00\x00\x9c\x00\x00\x05$\x00\x00\x02\x92\x00\x00\x01p\x00\x00\x00\xbb\x00\x00\x05#\x00\x00\x02\x91\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x01p\x00\x00\x00\xbb\x00\x00\x05#\x00\x00\x02\x91', 'select_rows': False, 'selected_cols': [1], 'selected_rows': [1], 'show_attribute_labels': True, 'show_distributions': False, '__version__': 2}</properties>
+		<properties node_id="15" format="literal">{'auto_commit': True, 'color_by_class': True, 'controlAreaVisible': True, 'dist_color_RGB': (220, 220, 220, 255), 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x020\x00\x00\x01\x0e\x00\x00\x05O\x00\x00\x03\x01\x00\x00\x020\x00\x00\x01\x0e\x00\x00\x05O\x00\x00\x03\x01\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x020\x00\x00\x01\x0e\x00\x00\x05O\x00\x00\x03\x01', 'select_rows': True, 'selected_cols': [], 'selected_rows': [], 'show_attribute_labels': True, 'show_distributions': False, '__version__': 2}</properties>
+	</node_properties>
+	<session_state>
+		<window_groups />
+	</session_state>
+</scheme>
