@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
 
 from .pkg import EUR产能参数计算 as runmain
 from .pkg.zxc import ThreadUtils_w
+from ..payload_manager import PayloadManager
 
 
 class Widget(OWWidget):
@@ -38,7 +39,11 @@ class Widget(OWWidget):
         filepath = Input("文件路径", str, auto_summary=False)
         file_name = Input("文件名", list, auto_summary=False)
 
+        # 新增 payload 接口
+        payload = Input("payload", dict, auto_summary=False)
+
     user_input = None
+    input_payload = None
     data: pd.DataFrame = None
     data_orange = None
     State_colsAttr = []
@@ -54,6 +59,87 @@ class Widget(OWWidget):
 
     file_name = None
     lognames = []
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        """
+        新增的 payload 输入接口：
+        不改原来的业务逻辑，只负责把 payload 解析成 EUR 现有代码需要的
+        1. data(list)
+        2. filepath(str)
+        3. file_name(list)
+        然后复用原来的 set_data / set_filepath / set_file_name 流程
+        """
+        if not payload:
+            self.input_payload = None
+            return
+
+        try:
+            self.input_payload = PayloadManager.ensure_payload(
+                payload,
+                node_name=self.name,
+                node_type="process",
+                task="predict",
+                data_kind="table_batch",
+            )
+        except Exception as e:
+            self.warning(f"payload 解析失败: {e}")
+            self.input_payload = None
+            return
+
+        items = PayloadManager.get_items(self.input_payload)
+        if not items:
+            self.warning("payload 中没有 items")
+            return
+
+        # 1. 解析 data(list)
+        data_list = []
+        for item in items:
+            table_obj = item.get("orange_table")
+            df_obj = item.get("dataframe")
+
+            if table_obj is not None:
+                data_list.append(table_obj)
+            elif df_obj is not None:
+                data_list.append(df_obj)
+
+        # 2. 解析 file_path
+        # EUR 旧逻辑更像是只吃一个“主路径”
+        # 优先取第一个 item 的 file_path；如果没有，就退回 context / legacy
+        file_paths = PayloadManager.get_file_paths(self.input_payload)
+        filepath_value = ""
+
+        if file_paths:
+            filepath_value = file_paths[0]
+        else:
+            filepath_value = (
+                    self.input_payload.get("context", {}).get("source_folder", "")
+                    or self.input_payload.get("legacy", {}).get("file_path", "")
+            )
+
+        # 3. 解析 file_name(list)
+        # 优先标准 items 里的 file_stem / file_name；再退回 legacy.file_name_list
+        file_name_list = []
+        for item in items:
+            stem = item.get("file_stem", "")
+            name = item.get("file_name", "")
+            if stem:
+                file_name_list.append(stem)
+            elif name:
+                file_name_list.append(os.path.splitext(name)[0])
+
+        if not file_name_list:
+            file_name_list = self.input_payload.get("legacy", {}).get("file_name_list", []) or []
+
+        # 4. 回填到原有三路输入逻辑
+        if data_list:
+            self.set_data(data_list)
+        if filepath_value:
+            self.set_filepath(filepath_value)
+        if file_name_list:
+            self.set_file_name(file_name_list)
+
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
 
     @Inputs.data
     def set_data(self, data):
@@ -101,6 +187,9 @@ class Widget(OWWidget):
         data = Output("汇总数据", list, auto_summary=False)  # 输出给控件
         file_name = Output("文件名", list, auto_summary=False)
         file_path = Output("文件路径", str, auto_summary=False)
+
+        # 新增 payload 接口
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -158,6 +247,77 @@ class Widget(OWWidget):
     rop = 'ROP'
     wob = 'WOB'
     WellnameNEW = None
+
+    def build_output_payload(self, result_df: pd.DataFrame):
+        """
+        将 EUR 计算结果重新包装成标准 payload 输出。
+        不影响老输出，只额外新增 payload 输出给你测试。
+        """
+        # 1. 如果有 payload 输入，尽量在上游 payload 基础上克隆，保留 context / trace / legacy
+        if hasattr(self, "input_payload") and self.input_payload:
+            out = PayloadManager.clone_payload(self.input_payload)
+            out["node_name"] = self.name
+            out["node_type"] = "process"
+            out["task"] = "predict"
+            out["data_kind"] = "table_batch"
+        else:
+            # 2. 如果当前还是老接口输入进来的，就创建一个新的 payload
+            out = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="process",
+                task="predict",
+                data_kind="table_batch"
+            )
+
+            # 尽量补一点上下文，方便后续控件测试
+            if getattr(self, "user_inputpath", None):
+                out["context"]["source_file_path"] = self.user_inputpath
+                out["context"]["source_folder"] = os.path.dirname(self.user_inputpath)
+
+            if getattr(self, "file_name", None):
+                out["legacy"]["file_name_list"] = list(self.file_name)
+
+        # 3. 结果转 Orange Table
+        result_table = table_from_frame(result_df)
+
+        # 4. 结果 item
+        # make_item 只传你规定允许的字段
+        result_item = PayloadManager.make_item(
+            file_path="",
+            orange_table=result_table,
+            dataframe=result_df,
+            sheet_name="",
+            role="main",
+            meta={
+                "source_widget": self.name,
+                "predicttype": getattr(self, "predicttype", None),
+                "selected_wells": list(getattr(self, "LEFTlist", [])),
+                "selected_features": list(getattr(self, "lognames", [])),
+                "selected_models": list(getattr(self, "modetyps", [])) if hasattr(self, "modetyps") else [],
+            },
+            uid=""
+        )
+
+        # 5. 只保留当前结果为主输出 item
+        out["items"] = [result_item]
+
+        # 6. 补 result 区，方便下游既能从 items 读，也能从 result 读
+        out = PayloadManager.set_result(
+            out,
+            orange_table=result_table,
+            dataframe=result_df,
+            extra={
+                "file_name": self.output_file_name,
+                "selected_wells": list(getattr(self, "LEFTlist", [])),
+                "selected_features": list(getattr(self, "lognames", [])),
+            }
+        )
+
+        # 7. 补 context
+        out["context"]["output_file_name"] = self.output_file_name
+        out["context"]["save_mode"] = self.save_radio
+
+        return out
 
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
     def ignore_function(self, text, prop):
@@ -231,12 +391,18 @@ class Widget(OWWidget):
         #                                         testsize=self.testsize, endday=self.endday, cutoff=self.cutoff,
         #                                         foldername='时间序列EUR预测', outpath='输出路径', savemode='.xlsx')
 
-        # 在线程中调用主函数
-        ThreadUtils_w.startAsyncTask(self, runmain.timeseriers_prediction, self.doneFunc, self.user_inputpath,
-                                     self.lognames, self.date_column, self.WellnameNEW, self.LEFTlist, self.steps,
-                                     self.predicttype, self.modetyps,
-                                     [-10000, -9999, -999.99, -999.25, -999, 999, 999.25, 9999, 0],
-                                     self.testsize, self.endday, self.cutoff, '时间序列EUR预测', '输出路径', '.xlsx')
+        # # 在线程中调用主函数
+        # ThreadUtils_w.startAsyncTask(self, runmain.timeseriers_prediction, self.doneFunc, self.user_inputpath,
+        #                              self.lognames, self.date_column, self.WellnameNEW, self.LEFTlist, self.steps,
+        #                              self.predicttype, self.modetyps,
+        #                              [-10000, -9999, -999.99, -999.25, -999, 999, 999.25, 9999, 0],
+        #                              self.testsize, self.endday, self.cutoff, '时间序列EUR预测', '输出路径', '.xlsx')
+
+        ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_timeseries_prediction,
+            self.doneFunc
+        )
 
         self.close()
 
@@ -248,9 +414,19 @@ class Widget(OWWidget):
             self.warning("".join(e.args))
             return
 
+        # 老输出保留
         self.save(result)
+        result_table = table_from_frame(result)
         self.Outputs.data.send([result])
-        self.Outputs.table.send(table_from_frame(result))
+        self.Outputs.table.send(result_table)
+
+        # 新增 payload 输出
+        try:
+            out_payload = self.build_output_payload(result)
+            self.Outputs.payload.send(out_payload)
+            print("payload 输出成功::::", PayloadManager.summary(out_payload))
+        except Exception as e:
+            self.warning(f"payload 输出失败: {e}")
 
     def read(self):
         """读取数据方法"""
@@ -266,6 +442,8 @@ class Widget(OWWidget):
     #################### 读取GUI上的配置 ####################
     firstdepths = None
     stopdepths = None
+
+
 
     ##获取第三四列数据
     def getfile34(self):
@@ -918,6 +1096,33 @@ class Widget(OWWidget):
     def on_checkbox_changed(self, state):
         self.modetyps = [checkbox.text() for checkbox in self.checkboxes if checkbox.isChecked()]
         print("modetyps:", self.modetyps)
+
+    def _run_timeseries_prediction(self, setProgress=None, isCancelled=None, **kwargs):
+        """
+        对接 runmain.timeseriers_prediction 的异步包装函数
+
+        注意：
+        1. 这里只按 EUR产能参数计算.py 中 timeseriers_prediction 的真实签名传参
+        2. 不再传 steps / predicttype，因为源函数不接受这两个参数
+        3. setProgress / isCancelled 是 ThreadUtils_w.startAsyncTask 注入的控制参数
+        """
+        return runmain.timeseriers_prediction(
+            self.user_inputpath,
+            self.lognames,
+            date_column=self.date_column,
+            wellname=self.WellnameNEW,
+            wellnames=self.LEFTlist,
+            modetyps=self.modetyps,
+            nanlsits=[-10000, -9999, -999.99, -999.25, -999, 999, 999.25, 9999, 0],
+            testsize=self.testsize,
+            endday=self.endday,
+            cutoff=self.cutoff,
+            foldername='时间序列EUR预测',
+            outpath='输出路径',
+            savemode='.xlsx',
+            setProgress=setProgress,
+            isCancelled=isCancelled
+        )
 
     def onTextChanged(self, text):
         # 获取输入框的内容
