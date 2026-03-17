@@ -246,7 +246,7 @@ def scatter_figure(data, namex, namey, dictnames, loglists=['RLLD', 'PERM', 'per
     plt.tick_params(axis='y', labelcolor='black', labelsize=20, width=2)
     plt.tick_params(axis='x', labelcolor='black', labelsize=20, width=2)
     plt.grid(True, linestyle='-', color="black", linewidth=0.5)
-    plt.savefig(savepath + str(namey) + '_' + str(namex) + figurename + '.png', dpi=300, bbox_inches='tight')
+    # plt.savefig(savepath + str(namey) + '_' + str(namex) + figurename + '.png', dpi=300, bbox_inches='tight')
     # plt.show()
 
 
@@ -272,7 +272,7 @@ def scatter_by_classes(data, namex, namey, namec, classess, dictnames,
     plt.tick_params(axis='y', labelcolor='black', labelsize=20, width=2)
     plt.tick_params(axis='x', labelcolor='black', labelsize=20, width=2)
     plt.grid(True, linestyle='-', color="black", linewidth=0.5)
-    plt.savefig(save_outpath + str(namey) + '_' + str(namex) + figurename + '.png', dpi=300, bbox_inches='tight')
+    # plt.savefig(save_outpath + str(namey) + '_' + str(namex) + figurename + '.png', dpi=300, bbox_inches='tight')
     # plt.show()
 
 
@@ -354,7 +354,7 @@ def R_Cluster_map(data, names, geo_name='地质', fontsize0=20, labelsize0=15, s
                 plt.grid(True, linestyle='--', color="black", linewidth=0.5)
                 plt.legend(loc='best', prop={'size': 8}, frameon=True)
     plt.tight_layout()
-    plt.savefig(outpath_figure + geo_name + '矩阵式成果图.png', dpi=300, bbox_inches='tight')
+    # plt.savefig(outpath_figure + geo_name + '矩阵式成果图.png', dpi=300, bbox_inches='tight')
     # plt.show()
 
 
@@ -408,7 +408,7 @@ def Corr_classes_map(data, names, y, classes, k, q,
             plt.grid(True, linestyle='--', color="black", linewidth=0.5)
             plt.legend(loc='best', prop={'size': 12}, frameon=True)
     plt.tight_layout()
-    plt.savefig(outpath_figure + y + str(k) + filename + '.png', dpi=300, bbox_inches='tight')
+    # plt.savefig(outpath_figure + y + str(k) + filename + '.png', dpi=300, bbox_inches='tight')
     # plt.show()
 
 
@@ -553,14 +553,14 @@ def shap_vaule(data, features, target, classnames, othernames, modeltype='xgboos
                 # shap.summary_plot(shap_values, features=None, feature_names=None, max_display=None, plot_type=None, color=None, axis_color='#333333', title=None, alpha=1, show=True,
                 # sort=True, color_bar=True, plot_size='auto', layered_violin_max_num_bins=20, class_names=None, class_inds=None, color_bar_label='Feature value', cmap=<matplotlib.colors.LinearSegmentedColormap object>, auto_size_plot=None, use_log_scale=False)
                 shap.summary_plot(shap_values, X, class_names=classnames)
-                plt.savefig(outpath_figure + str(target) + str(modeltype) + figtype + '.png', dpi=300,
-                            bbox_inches='tight')
+                # plt.savefig(outpath_figure + str(target) + str(modeltype) + figtype + '.png', dpi=300,
+                #             bbox_inches='tight')
                 # plt.show()
             elif figtype == '特征组合影响图':
                 for indx, classname in enumerate(classnames):
                     shap.summary_plot(shap_values[indx], X, sort=True)
-                    plt.savefig(outpath_figure + str(target) + classname + str(modeltype) + figtype + '.png', dpi=300,
-                                bbox_inches='tight')
+                    # plt.savefig(outpath_figure + str(target) + classname + str(modeltype) + figtype + '.png', dpi=300,
+                    #             bbox_inches='tight')
                     # plt.show()
 
             elif figtype == '依赖曲线图':
@@ -568,8 +568,8 @@ def shap_vaule(data, features, target, classnames, othernames, modeltype='xgboos
                 # shap.dependence_plot(ind, shap_values=None, features=None, feature_names=None, display_features=None, interaction_index='auto', color='#1E88E5', axis_color='#333333', cmap=None, dot_size=16, x_jitter=0, alpha=1, title=None, xmin=None, xmax=None, ax=None, show=True)
                 for indx, classname in enumerate(classnames):
                     shap.dependence_plot(indx, shap_values[indx], X, feature_names=features, interaction_index=None)
-                    plt.savefig(outpath_figure + str(target) + classname + str(modeltype) + figtype + '.png', dpi=300,
-                                bbox_inches='tight')
+                    # plt.savefig(outpath_figure + str(target) + classname + str(modeltype) + figtype + '.png', dpi=300,
+                    #             bbox_inches='tight')
                     # plt.show()
 
             elif figtype == '多类别决策曲线图':
@@ -585,8 +585,8 @@ def shap_vaule(data, features, target, classnames, othernames, modeltype='xgboos
                     print(indx, classname)
                     shap.force_plot(explainer.expected_value[indx], shap_values[indx][:100, :], X.iloc[:100, :])
                     # shap.force_plot(explainer.expected_value[1], shap_values[1][:1000,:], X_display.iloc[:1000,:])
-                    plt.savefig(outpath_figure + str(target) + classname + str(modeltype) + figtype + '.png', dpi=300,
-                                bbox_inches='tight')
+                    # plt.savefig(outpath_figure + str(target) + classname + str(modeltype) + figtype + '.png', dpi=300,
+                    #             bbox_inches='tight')
                     # plt.show()
         return result,bestdata
 
@@ -694,8 +694,8 @@ def shap_vaule(data, features, target, classnames, othernames, modeltype='xgboos
                     plt.title(modeltype + target + "特征shap排序图", fontsize=25)
                     plt.ylabel(target + '特征', fontsize=25)
                     plt.xlabel('shap_MA', fontsize=25)
-                    plt.savefig(outpath_figure + str(target) + str(modeltype) + '排序分析图.png', dpi=300,
-                                bbox_inches='tight')
+                    # plt.savefig(outpath_figure + str(target) + str(modeltype) + '排序分析图.png', dpi=300,
+                    #             bbox_inches='tight')
                     # plt.show()
                 else:
                     plt.figure(figsize=(8, len(result)))  # 设置图片背景的参数
@@ -707,28 +707,29 @@ def shap_vaule(data, features, target, classnames, othernames, modeltype='xgboos
                     plt.title(modeltype + target + "特征shap排序图", fontsize=25)
                     plt.ylabel(target + '特征', fontsize=25)
                     plt.xlabel('shap_MA', fontsize=25)
-                    plt.savefig(outpath_figure + str(target) + str(modeltype) + 'shap特征排序图.png', dpi=300,
-                                bbox_inches='tight')
+                    # plt.savefig(outpath_figure + str(target) + str(modeltype) + 'shap特征排序图.png', dpi=300,
+                    #             bbox_inches='tight')
                     # plt.show()
 
             elif figtype == '特征组合影响图':
                 shap.summary_plot(ShapValues, X, show=False)
-                plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
+                # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
                 # plt.show()
 
             elif figtype == '决策曲线图':
+                print('1')
                 # shap.multioutput_decision_plot()
-                expected_values = explainer.expected_value
-                print(expected_values)
+                # expected_values = explainer.expected_value
+                # print(expected_values)
                 # shap_array = explainer.shap_values(X)
-                shap.decision_plot(np.mean(expected_values), ShapValues, feature_names=features, show=False,
-                                   ignore_warnings=True)
-                plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
+                # shap.decision_plot(np.mean(expected_values), ShapValues, feature_names=features, show=False,
+                #                    ignore_warnings=True)
+                # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
                 # plt.show()
 
             elif figtype == '平均shap值的条形图' or figtype == 'bar_summary_plot':
                 shap.summary_plot(ShapValues, X, plot_type="bar", show=False)
-                plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
+                # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
                 # plt.show()
         return result,bestdata
 
