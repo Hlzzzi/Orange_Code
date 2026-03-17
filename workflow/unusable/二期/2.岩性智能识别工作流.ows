@@ -1,0 +1,28 @@
+<?xml version='1.0' encoding='utf-8'?>
+<scheme version="2.0" title="" description="">
+	<nodes>
+		<node id="0" name="测井数据加载" qualified_name="orangecontrib.src.LasDataLoad.lasdata" project_name="Add-on" version="" title="分层数据加载" position="(-291.0, -298.0)" />
+		<node id="1" name="测井多表加载" qualified_name="orangecontrib.interval.测井多表加载.Widget" project_name="Add-on" version="" title="测井多表加载" position="(-292.0, -79.0)" />
+		<node id="2" name="多文件合并" qualified_name="orangecontrib.interval.多文件合并.Widget" project_name="Add-on" version="" title="多文件合并" position="(-293.0, -188.0)" />
+		<node id="3" name="分层数据处理" qualified_name="orangecontrib.src.分层数据处理.Widget" project_name="Add-on" version="" title="分层数据处理" position="(-123.0, -298.0)" />
+		<node id="4" name="多文件层段数据链接" qualified_name="orangecontrib.interval.多文件层段数据链接.cengduan" project_name="Add-on" version="" title="多文件层段数据链接" position="(71.0, -198.0)" />
+	</nodes>
+	<links>
+		<link id="0" source_node_id="0" sink_node_id="3" source_channel="Table_list" sink_channel="分层数据" enabled="true" />
+		<link id="1" source_node_id="3" sink_node_id="4" source_channel="分层数据List" sink_channel="目标类数据" enabled="true" />
+		<link id="2" source_node_id="1" sink_node_id="4" source_channel="TableList" sink_channel="钻测录数据" enabled="true" />
+		<link id="3" source_node_id="1" sink_node_id="4" source_channel="文件名" sink_channel="钻测录井名" enabled="true" />
+	</links>
+	<annotations />
+	<thumbnail />
+	<node_properties>
+		<properties node_id="0" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x024\x00\x00\x00n\x00\x00\x04u\x00\x00\x03\x0c\x00\x00\x025\x00\x00\x00\x8c\x00\x00\x04t\x00\x00\x03\x0b\x00\x00\x00\x00\x00\x00\x00\x00\x06\xab\x00\x00\x025\x00\x00\x00\x8c\x00\x00\x04t\x00\x00\x03\x0b', '__version__': 1}</properties>
+		<properties node_id="1" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': None, '__version__': 1}</properties>
+		<properties node_id="2" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': None, '__version__': 1}</properties>
+		<properties node_id="3" format="literal">{'auto_send': False, 'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02_\x00\x00\x00\xd2\x00\x00\x05\xe9\x00\x00\x02\xe4\x00\x00\x02`\x00\x00\x00\xf0\x00\x00\x05\xe8\x00\x00\x02\xe3\x00\x00\x00\x00\x00\x00\x00\x00\x06\xab\x00\x00\x02`\x00\x00\x00\xf0\x00\x00\x05\xe8\x00\x00\x02\xe3', '__version__': 1}</properties>
+		<properties node_id="4" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': None, '__version__': 1}</properties>
+	</node_properties>
+	<session_state>
+		<window_groups />
+	</session_state>
+</scheme>
