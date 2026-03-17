@@ -245,7 +245,7 @@ def scatter_figure(data, namex, namey, dictnames, loglists=['RLLD', 'PERM', 'per
     plt.tick_params(axis='x', labelcolor='black', labelsize=20, width=2)
     plt.grid(True, linestyle='-', color="black", linewidth=0.5)
     plt.savefig(savepath + str(namey) + '_' + str(namex) + figurename + '.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()
 
 
 def scatter_by_classes(data, namex, namey, namec, classess, dictnames,
@@ -271,7 +271,7 @@ def scatter_by_classes(data, namex, namey, namec, classess, dictnames,
     plt.tick_params(axis='x', labelcolor='black', labelsize=20, width=2)
     plt.grid(True, linestyle='-', color="black", linewidth=0.5)
     plt.savefig(save_outpath + str(namey) + '_' + str(namex) + figurename + '.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()
 
 
 def correlation_coefficient(list_X, list_Y):
@@ -353,7 +353,7 @@ def R_Cluster_map(data, names, geo_name='地质', fontsize0=20, labelsize0=15, s
                 plt.legend(loc='best', prop={'size': 8}, frameon=True)
     plt.tight_layout()
     plt.savefig(outpath_figure + geo_name + '矩阵式成果图.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()
 
 
 def findid(names, name):
@@ -447,7 +447,7 @@ def shap_vaule_show(data, features, target, classnames, loglists=[]):
             plt.legend(loc='best', prop={'size': 12}, frameon=True)
     plt.tight_layout()
     # plt.savefig(outpath_figure+y+str(k)+filename+'.png',dpi=300, bbox_inches = 'tight')
-    plt.show()
+    # plt.show()
 
 
 def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype='xgboost', modetype='特征选择数',
@@ -663,7 +663,7 @@ def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype
                 plt.tick_params(axis='x', labelcolor='black', labelsize=20, width=2)
                 # plt.grid(True, linestyle = '-', color = "black", linewidth = 0.5)
                 # plt.savefig(outpath_figure + target + CC + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-                plt.show()
+                # plt.show()
         elif figtype == '分类别shap散点交会图':
             if len(classnames) == 0 or Y_name == '' or Y_name == None:
                 pass
@@ -696,7 +696,7 @@ def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype
                     # plt.grid(True, linestyle = '-', color = "black", linewidth = 0.5)
                     # plt.savefig(outpath_figure + CC + modeltype + Y_name + figtype + '.png', dpi=300,
                     #             bbox_inches='tight')
-                    plt.show()
+                    # plt.show()
         elif figtype == 'shap特征排序图':
             if len(result) < 12:
                 plt.figure(figsize=(8, 12))  # 设置图片背景的参数
@@ -711,7 +711,7 @@ def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype
                 plt.xlabel('shap_MAE', fontsize=25)
                 # plt.savefig(outpath_figure + str(target) + str(modeltype) + '排序分析图.png', dpi=300,
                 #             bbox_inches='tight')
-                plt.show()
+                # plt.show()
             else:
                 plt.figure(figsize=(8, len(result)))  # 设置图片背景的参数
                 y_data = result['shap_MAE'][::-1]
@@ -724,29 +724,29 @@ def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype
                 plt.xlabel('shap_MAE', fontsize=25)
                 # plt.savefig(outpath_figure + str(target) + str(modeltype) + 'shap特征排序图.png', dpi=300,
                 #             bbox_inches='tight')
-                plt.show()
+                # plt.show()
         elif figtype == '瀑布图':
             # ShapValues
             for ind, X_name in enumerate(features):
                 shap.plots.waterfall(ShapValues[ind], show=False)
                 # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-                plt.show()
+                # plt.show()
         elif figtype == '特征组合影响图' or figtype == 'Interaction_Values_summary_plot':
             shap_interaction_values = explainer.shap_interaction_values(X)
             shap.summary_plot(shap_interaction_values, X, max_display=10, plot_type="compact_dot", show=False)
             # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-            plt.show()
+            # plt.show()
         elif figtype == '条形图':
             shap.plots.bar(ShapValues, show=False)
             # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-            plt.show()
+            # plt.show()
         elif figtype == '交互图' or figtype == 'summary_plot':
             # 4.1 交互图
             # 交互图对角线上展示的是该特征与预测值的关系，它与最普通的shap plot相一致，对角线以外其它位置是特征两两组合对预测的影响．每个子图的横坐标为shap value，也就是说，子图越宽，该特征组合对结果影响越大．
             shap_interaction_values = explainer.shap_interaction_values(X)
             shap.summary_plot(shap_interaction_values, X, show=False)
             # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-            plt.show()
+            # plt.show()
         elif figtype == '交互依赖图' or figtype == 'shap_interaction_dependence_plot':
             # 4.4 依赖图
             # 依赖图分析一个特征对另一个特征的影响，
@@ -763,7 +763,7 @@ def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype
                 # shap.dependence_plot('age', shap_values, data[cols],interaction_index=None, show=True)
                 # shap.plots.scatter(explainer(X)[:,X_name])
                 # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-                plt.show()
+                # plt.show()
         # Create shap scatterplots for important features
         # Plot shap decision tree
         elif figtype == '决策曲线图' or figtype == 'decision_plot':
@@ -773,7 +773,7 @@ def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype
                                ignore_warnings=True)
             # shap.decision_plot(expected_values, shap_array, features, feature_order='hclust', show=False)
             # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-            plt.show()
+            # plt.show()
         elif figtype == '概率决策曲线图' or figtype == 'probabilities_decision_plot':
             expected_values = explainer.expected_value
             shap_array = explainer.shap_values(X)
@@ -781,7 +781,7 @@ def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype
                                link='logit', show=False, ignore_warnings=True)
             # shap.decision_plot(expected_values, shap_array, features, feature_order='hclust', show=False)
             # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-            plt.show()
+            # plt.show()
             # shap.decision_plot(expected_value, shap_values, features_display, link='logit')
         elif figtype == '蜂窝图':
             # Create explainer and shap values from model
@@ -790,20 +790,20 @@ def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype
             # Plot shap beesworm
             shap.plots.beeswarm(ShapValues, order=ShapValues.abs.max(0), show=False)
             # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-            plt.show()
+            # plt.show()
         elif figtype == '平均shap值的条形图' or figtype == 'bar_summary_plot':
             shap.summary_plot(ShapValues, X, plot_type="bar", show=False)
 
             # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-            plt.show()
+            # plt.show()
         elif figtype == '分层小提琴图' or figtype == 'Layered_violin_plot':
             shap.summary_plot(ShapValues, X, plot_type="layered_violin", color='coolwarm', show=False)
             # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-            plt.show()
+            # plt.show()
         elif figtype == '小提琴图' or figtype == 'Layered_violin_plot':
             shap.summary_plot(ShapValues, X, plot_type="violin", show=False)
             # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-            plt.show()
+            # plt.show()
         elif figtype == '力图' or figtype == 'force_plot':
             # 在图中主要关注base_value，它是预测的均值，而f(x)展示了该实例的具体预测值，红色和蓝色区域的颜色和宽度展示了主要特征的影响和方向．
             # 可视化第一个prediction的解释   如果不想用JS,传入matplotlib=True
@@ -826,7 +826,7 @@ def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype
             # shap.force_plot(explainer.expected_value, shap_values[0,:] ,X.iloc[0,:],feature_names=X_names)
             # shap.force_plot(explainer.expected_value,shap_values, feature_names=features, show=False)
             # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-            plt.show()
+            # plt.show()
         # elif figtype=='概率力图' or figtype=='probabilities_force_plot' :
         #     # 在图中主要关注base_value，它是预测的均值，而f(x)展示了该实例的具体预测值，红色和蓝色区域的颜色和宽度展示了主要特征的影响和方向．
         #     # 可视化第一个prediction的解释   如果不想用JS,传入matplotlib=True
@@ -864,7 +864,7 @@ def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype
                 # overlay=None, ax=None, ylabel="SHAP value", show=True
                 shap.plots.scatter(ShapValues[:, X_name], show=False)
                 # plt.savefig(outpath_figure + target + CC + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-                plt.show()
+                # plt.show()
                 # fig, ax = plt.subplots(nrows=1, ncols=2,figsize=(16,8))
                 # SHAP scatter plots
                 # shap.plots.scatter(shap_values[:,X_name],ax=ax[0],show=False)
@@ -878,7 +878,7 @@ def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype
             clustering = shap.utils.hclust(X, y)
             shap.plots.bar(shap_values_obj, clustering=clustering, clustering_cutoff=cutoff, show=False)
             # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-            plt.show()
+            # plt.show()
         elif figtype == '热力图' or figtype == 'heatmap':
             # 3.3 热力图
             # 热力图的横轴是每个实例，纵轴是每个特征对该实例的影响，用颜色描述该特征对该实例的影响方向和力度，比如x轴在300附近的实例，其预测值f(x)在0.5附近，原因是LSTAT对它起到正向作用，而RM对它起负向作用，其它特征影响比较小（浅色）．
@@ -887,7 +887,7 @@ def shap_vaule(data, features, target, Y_name, classnames, othernames, modeltype
             shap.plots.heatmap(shap_values, instance_order=shap_values.sum(1), show=False)
 
             # plt.savefig(outpath_figure + target + modeltype + figtype + '.png', dpi=300, bbox_inches='tight')
-            plt.show()
+            # plt.show()
     return result, bestdata
 
 # path = r"C:\Users\LHiennn\Desktop\测试数据\分层\240625142555_数据筛选.xlsx"

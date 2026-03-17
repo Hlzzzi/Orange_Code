@@ -15,6 +15,8 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QFileDialog, QSplitter, QPushButton, QHeaderView, QTabWidget, QComboBox, QTableWidgetItem, QWidget, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 from .pkg import shap算法多特征回归分类别可解释性分析 as runmain
 
@@ -35,8 +37,9 @@ class Widget(OWWidget):
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
         data = Input("数据", list, auto_summary=False)
         table = Input("数据", Table, auto_summary=False)
-        # datapath = Input("数据路径", str, auto_summary=False)
-        # Tabledata = Input("Orange数据", Table, auto_summary=False)
+
+        # 新增 payload 输入
+        payload = Input("payload", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -57,24 +60,68 @@ class Widget(OWWidget):
 
     @Inputs.data
     def set_data(self, data):
-        if data:
-            print("数据输入成功::::", data)
-            self.ALLdata = data
-
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.data: pd.DataFrame = df
-            elif isinstance(data[0], pd.DataFrame):
-                self.data: pd.DataFrame = data[0]
-            self.read()
-        else:
+        if not data:
             self.data = None
+            self.ALLdata = None
+            return
+
+        print("数据输入成功::::", data)
+        self.ALLdata = data
+
+        df = None
+        first = data[0]
+
+        if isinstance(first, Table):
+            df = table_to_frame(first)
+            self.merge_metas(first, df)
+        elif isinstance(first, pd.DataFrame):
+            df = first
+
+        self._apply_input_dataframe(df)
 
     @Inputs.table
     def set_table(self, table):
-        self.data = table_to_frame(table)
-        self.read()
+        if table is None:
+            self.data = None
+            self.ALLdata = None
+            return
+
+        df = table_to_frame(table)
+        self.merge_metas(table, df)
+        self._apply_input_dataframe(df)
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        """
+        新增 payload 输入：
+        - 按 payload_manager 标准先 ensure_payload
+        - 取第一张 dataframe；没有就退回第一张 orange_table
+        - 继续复用现有 read()/GUI 逻辑
+        """
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="process",
+            task="explain",
+            data_kind="table_batch",
+        )
+
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
+
+        items = PayloadManager.get_items(self.input_payload)
+        self.current_input_item = items[0] if items else None
+
+        df = PayloadManager.get_single_dataframe(self.input_payload)
+        if df is None:
+            table = PayloadManager.get_single_table(self.input_payload)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+
+        # 文件名信息可选保留，方便后面写回 legacy/context
+        self.file_name = PayloadManager.get_file_names(self.input_payload)
+
+        self._apply_input_dataframe(df)
 
     # @Inputs.datapath
     # def set_user_input(self, user_input):
@@ -102,6 +149,9 @@ class Widget(OWWidget):
 
         tableSX = Output("筛选大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
         dataSX = Output("筛选数据List", list, auto_summary=False)  # 输出给控件
+
+        # 新增 payload 输出
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -184,40 +234,68 @@ class Widget(OWWidget):
     cut_corr = 0.5
     space = 5
 
-    def run(self):
-        # """【核心入口方法】发送按钮回调"""
-        if self.data is None:
-            self.warning('请先输入数据')
+    def _run_shap_task(self, setProgress=None, isCancelled=None, **kwargs):
+        """
+        异步包装层：
+        - ThreadUtils_w 会把 setProgress / isCancelled 注入到这里
+        - runmain.shap_vaule 本身不接这两个参数，所以这里只在外层处理
+        """
+        if callable(isCancelled) and isCancelled():
+            return None
+
+        if callable(setProgress):
+            setProgress(1)
+
+        classnames = []
+        if self.Y_name and self.Y_name in self.data.columns:
+            classnames = self.data[self.Y_name].dropna().unique().tolist()
+
+        resultPX, resultSX = runmain.shap_vaule(
+            data=self.data.copy(),
+            features=list(self.lognames),
+            target=self.Target,
+            Y_name=self.Y_name,
+            classnames=classnames,
+            othernames=list(self.othernames),
+            modeltype=self.modelltype,
+            modetype=self.mdye,
+            select_number=self.select_number,
+            cutoff=self.cut_corr,
+            nanlists=[-10000, -99999, -9999, -999.99, -999.25, -999, -1, 999, 999.25, 9999, 99999],
+            figtypes=list(self.figuretypes),
+        )
+
+        if callable(isCancelled) and isCancelled():
+            return None
+
+        if callable(setProgress):
+            setProgress(100)
+
+        return {
+            "rank_df": resultPX,
+            "selected_df": resultSX,
+            "classnames": classnames,
+        }
+
+    def doneFunc(self, f):
+        """异步任务完成回调"""
+        try:
+            result = f.result()
+        except Exception as e:
+            self.warning("".join(e.args) if getattr(e, "args", None) else str(e))
             return
 
-        # 将target_sj 列中的数据 去重后存在列表中
-        classnames = self.data[self.Y_name].unique().tolist()
-        ##各项参数如下：
-        print('self.lognames:', self.lognames)
-        print('self.Y_name:', self.Y_name)
-        print('self.Target:', self.Target)
-        print('self.classnames:', classnames)
-        print('self.othernames:', self.othernames)
+        if not result:
+            return
 
-        print('self.select_number:', self.select_number)
-        print('self.cutoff:', self.cut_corr)
+        resultPX = result.get("rank_df")
+        resultSX = result.get("selected_df")
 
-        print('self.slect_type:', self.modelltype)
+        if resultPX is None or resultSX is None:
+            self.warning("SHAP 结果为空")
+            return
 
-        # (data, features, target, Y_name, classnames, othernames, modeltype='xgboost', modetype='特征选择数',
-        #        select_number=10, cutoff=0.15,
-        #        nanlists=[-10000, -99999, -9999, -999.99, -1, -999.25, -999, 999, 999.25, 9999, 99999],
-        #        loglists=[], figtypes=['特征重叠度排序图']):
-
-        resultPX, resultSX = runmain.shap_vaule(data=self.data, features=self.lognames, target=self.Target,
-                                                Y_name=self.Y_name, classnames=classnames,
-                                                othernames=self.othernames,
-                                                modeltype=self.modelltype, modetype=self.mdye,
-                                                select_number=self.select_number, cutoff=self.cut_corr,
-                                                nanlists=[-10000, -99999, -9999, -999.99, -999.25, -999, -1, 999,
-                                                          999.25, 9999, 99999],
-                                                figtypes=self.figuretypes, )
-
+        # 老输出继续保留
         self.save(resultPX)
         self.save(resultSX)
 
@@ -225,9 +303,173 @@ class Widget(OWWidget):
         self.Outputs.dataPX.send([resultPX])
 
         resultSX = resultSX.loc[:, ~resultSX.columns.duplicated()]
-
         self.Outputs.tableSX.send(table_from_frame(resultSX))
         self.Outputs.dataSX.send([resultSX])
+
+        # 新增 payload 输出
+        try:
+            out_payload = self.build_output_payload(resultPX, resultSX)
+            self.Outputs.payload.send(out_payload)
+            print("payload 输出成功::::", PayloadManager.summary(out_payload))
+        except Exception as e:
+            self.warning(f"payload 输出失败: {e}")
+
+    def build_output_payload(self, resultPX: pd.DataFrame, resultSX: pd.DataFrame):
+        """
+        把 SHAP 排序表 和 筛选表 封装成一个统一 payload
+        """
+        if self.input_payload:
+            out = PayloadManager.clone_payload(self.input_payload)
+            out["node_name"] = self.name
+            out["node_type"] = "process"
+            out["task"] = "explain"
+            out["data_kind"] = "table_batch"
+        else:
+            out = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="process",
+                task="explain",
+                data_kind="table_batch"
+            )
+
+        tablePX = table_from_frame(resultPX)
+        tableSX = table_from_frame(resultSX)
+
+        items = [
+            PayloadManager.make_item(
+                file_path="",
+                orange_table=tablePX,
+                dataframe=resultPX,
+                sheet_name="",
+                role="rank",
+                meta={
+                    "kind": "rank",
+                    "source_widget": self.name,
+                    "y_name": self.Y_name,
+                    "target": self.Target,
+                    "modeltype": self.modelltype,
+                },
+                uid=""
+            ),
+            PayloadManager.make_item(
+                file_path="",
+                orange_table=tableSX,
+                dataframe=resultSX,
+                sheet_name="",
+                role="selected",
+                meta={
+                    "kind": "selected",
+                    "source_widget": self.name,
+                    "y_name": self.Y_name,
+                    "target": self.Target,
+                    "modeltype": self.modelltype,
+                },
+                uid=""
+            ),
+        ]
+
+        out = PayloadManager.replace_items(out, items, data_kind="table_batch")
+
+        out = PayloadManager.set_result(
+            out,
+            orange_table=tablePX,
+            dataframe=resultPX,
+            extra={
+                "rank_table": tablePX,
+                "rank_dataframe": resultPX,
+                "selected_table": tableSX,
+                "selected_dataframe": resultSX,
+            }
+        )
+
+        out = PayloadManager.update_context(
+            out,
+            y_name=self.Y_name,
+            target=self.Target,
+            modeltype=self.modelltype,
+            modetype=self.mdye,
+            selected_features=list(self.lognames),
+            other_targets=list(self.othernames),
+            figuretypes=list(self.figuretypes),
+            input_file_names=list(self.file_name) if self.file_name else [],
+        )
+
+        out["legacy"].update({
+            "rank_list": [resultPX],
+            "selected_list": [resultSX],
+        })
+
+        return out
+
+    def run(self):
+        """发送按钮回调：改为异步启动"""
+        if self.data is None:
+            self.warning('请先输入数据')
+            return
+
+        if not self.Y_name or self.Y_name not in self.data.columns:
+            self.warning('请先选择有效的 Y_name')
+            return
+
+        if not self.Target or self.Target not in self.data.columns:
+            self.warning('请先选择有效的 Target')
+            return
+
+        if not self.lognames:
+            self.warning('请至少选择一个特征')
+            return
+
+        ok = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_shap_task,
+            self.doneFunc
+        )
+
+        if not ok:
+            self.warning("已有任务正在运行，请稍后再试")
+        # # """【核心入口方法】发送按钮回调"""
+        # if self.data is None:
+        #     self.warning('请先输入数据')
+        #     return
+        #
+        # # 将target_sj 列中的数据 去重后存在列表中
+        # classnames = self.data[self.Y_name].unique().tolist()
+        # ##各项参数如下：
+        # print('self.lognames:', self.lognames)
+        # print('self.Y_name:', self.Y_name)
+        # print('self.Target:', self.Target)
+        # print('self.classnames:', classnames)
+        # print('self.othernames:', self.othernames)
+        #
+        # print('self.select_number:', self.select_number)
+        # print('self.cutoff:', self.cut_corr)
+        #
+        # print('self.slect_type:', self.modelltype)
+        #
+        # # (data, features, target, Y_name, classnames, othernames, modeltype='xgboost', modetype='特征选择数',
+        # #        select_number=10, cutoff=0.15,
+        # #        nanlists=[-10000, -99999, -9999, -999.99, -1, -999.25, -999, 999, 999.25, 9999, 99999],
+        # #        loglists=[], figtypes=['特征重叠度排序图']):
+        #
+        # resultPX, resultSX = runmain.shap_vaule(data=self.data, features=self.lognames, target=self.Target,
+        #                                         Y_name=self.Y_name, classnames=classnames,
+        #                                         othernames=self.othernames,
+        #                                         modeltype=self.modelltype, modetype=self.mdye,
+        #                                         select_number=self.select_number, cutoff=self.cut_corr,
+        #                                         nanlists=[-10000, -99999, -9999, -999.99, -999.25, -999, -1, 999,
+        #                                                   999.25, 9999, 99999],
+        #                                         figtypes=self.figuretypes, )
+        #
+        # self.save(resultPX)
+        # self.save(resultSX)
+        #
+        # self.Outputs.tablePX.send(table_from_frame(resultPX))
+        # self.Outputs.dataPX.send([resultPX])
+        #
+        # resultSX = resultSX.loc[:, ~resultSX.columns.duplicated()]
+        #
+        # self.Outputs.tableSX.send(table_from_frame(resultSX))
+        # self.Outputs.dataSX.send([resultSX])
 
     def read(self):
         """读取数据方法"""
@@ -237,14 +479,22 @@ class Widget(OWWidget):
         self.selectedWellName = []
         self.propertyDict = {}
 
+        # 每次新输入都重置自动识别结果，避免重复叠加
+        self.lognames = []
+        self.othernames = []
+
+        self.ddf = pd.DataFrame()
+
         # 填充属性表格
-        self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
+        self.fillPropTable(
+            self.data,
+            '属性',
+            self.leftTopTable,
+            self.dataYLD_type_list,
+            self.dataYLD_funcType_list
+        )
 
         self.fillprpo()
-
-    #################### 读取GUI上的配置 ####################
-    firstdepths = None
-    stopdepths = None
 
     def fillfile(self):
         names = self.file_name
@@ -337,12 +587,28 @@ class Widget(OWWidget):
 
     def fillprpo(self):
         abc = self.data.columns.tolist()
+
+        self.comboBoxleft1.clear()
+        self.comboBoxleft121.clear()
+
         self.comboBoxleft1.addItems(abc)
         self.comboBoxleft121.addItems(abc)
 
+        try:
+            self.comboBoxleft1.currentIndexChanged.disconnect()
+        except Exception:
+            pass
+        try:
+            self.comboBoxleft121.currentIndexChanged.disconnect()
+        except Exception:
+            pass
+
         self.comboBoxleft1.currentIndexChanged.connect(self.onComboBoxIndexChanged1)
         self.comboBoxleft121.currentIndexChanged.connect(self.onComboBoxIndexChanged121)
-        # self.comboBoxleft3.currentIndexChanged.connect(self.onComboBoxIndexChanged3)
+
+        if abc:
+            self.Y_name = abc[0]
+            self.Target = abc[0]
 
     def onComboBoxIndexChanged1(self, index):
         # 获取当前选择的文本
@@ -673,6 +939,16 @@ class Widget(OWWidget):
         else:
             self.save_path = None
 
+    def _apply_input_dataframe(self, df: pd.DataFrame):
+        if df is None:
+            self.data = None
+            self.ALLdata = None
+            return
+
+        self.data = df.copy()
+        self.ALLdata = [df]
+        self.read()
+
     def __init__(self):
         super().__init__()
         pd.set_option('mode.chained_assignment', None)  # TODO: 关闭代码中所有SettingWithCopyWarning
@@ -680,6 +956,14 @@ class Widget(OWWidget):
         self.sort_order_ascending = False  # 用于跟踪排序顺序的变量
         self.label_content_mapping = {}
         self.clumN = None
+        self.input_payload = None
+        self.current_input_item = None
+
+        self.lognames = []
+        self.othernames = []
+        self.LEFTlist = []
+        self.figuretypes = []
+        self.file_name = []
 
         layout = QGridLayout()
         layout.setSpacing(3)
