@@ -15,6 +15,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QFileDialog, QSplitter, QPushButton, QHeaderView, QTabWidget, QComboBox, QTableWidgetItem, QWidget, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel, QAbstractItemView, QRadioButton, QButtonGroup
 
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 class Widget(OWWidget):
     # Widget needs a name, or it is considered an abstract widget
@@ -34,6 +36,9 @@ class Widget(OWWidget):
         path = Input("数据path", str, auto_summary=False)
         # data_orange = Input("Data", Orange.data.Table, auto_summary=False)
         dataTable = Input("数据表格", Table, auto_summary=False)
+
+        # 新增 payload 输入
+        payload = Input("payload", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -79,6 +84,48 @@ class Widget(OWWidget):
     li_san_list = []
 
     Ture_data = None
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        """
+        新增 payload 输入：
+        - 保留老接口不动
+        - 从 payload 中取第一张主表
+        - 同时尽量拿到 file_path，兼容旧 run() 所需的数据源路径
+        """
+        if not payload:
+            self.input_payload = None
+            self.current_input_item = None
+            self.input_file_names = []
+            return
+
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="process",
+            task="cluster",
+            data_kind="table_batch",
+        )
+
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
+
+        items = PayloadManager.get_items(self.input_payload)
+        self.current_input_item = items[0] if items else None
+
+        df = PayloadManager.get_single_dataframe(self.input_payload)
+        if df is None:
+            table = PayloadManager.get_single_table(self.input_payload)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+
+        file_paths = PayloadManager.get_file_paths(self.input_payload)
+        source_path = file_paths[0] if file_paths else ""
+
+        self.input_file_names = PayloadManager.get_file_names(self.input_payload)
+
+        self._apply_payload_dataframe(df, source_path=source_path)
+
     @Inputs.data
     def set_data(self, data):
         self.Ture_data = data[0]
@@ -151,6 +198,9 @@ class Widget(OWWidget):
         GDOH_Sensitivity_Matrix_data_list = Output("敏感度系数矩阵列表", list, auto_summary=False)
         raw = Output("数据Dict", dict, auto_summary=False)
 
+        # 新增 payload 输出
+        payload = Output("payload", dict, auto_summary=False)
+
     @gui.deferred
     def commit(self):
         self.run()
@@ -208,60 +258,71 @@ class Widget(OWWidget):
                 self.data.reset_index(drop=True, inplace=True)
             self.data = self.data.drop(columns=columns)
 
-    def run(self):
-        """【核心入口方法】发送按钮回调"""
+    def _run_cluster_task(self, setProgress=None, isCancelled=None, **kwargs):
+        """
+        异步包装层：
+        - 接住 ThreadUtils_w 注入的 setProgress / isCancelled
+        - 不改任何聚类功能逻辑
+        - 只是把原 run() 里的业务调用搬到后台线程
+        """
         from .pkg import 层次聚类的 as runmain
-        if self.data is None:
-            self.warning('请先输入数据')
+
+        if callable(isCancelled) and isCancelled():
+            return None
+
+        if callable(setProgress):
+            setProgress(1)
+
+        GDOH_cluster_data, Jcorr, Jcorr1 = runmain.GDOH_output(
+            data=self.data.copy(),
+            log_names=self.te_zheng_list,
+            y=self.li_san_list[0],
+            k=int(self.wang_ge),
+            q=self.yu_zhi_jie_duan,
+            num=self.te_zheng_change,
+            loglists=self.loglist,
+            modeR='random',
+            target='RRT',
+            mode=self.type_change,
+            outmodetype=self.fangfa
+        )
+
+        if callable(isCancelled) and isCancelled():
+            return None
+
+        if callable(setProgress):
+            setProgress(100)
+
+        return {
+            "cluster_df": GDOH_cluster_data,
+            "overlap_df": Jcorr,
+            "sensitivity_df": Jcorr1
+        }
+
+    def doneFunc(self, f):
+        try:
+            result = f.result()
+        except Exception as e:
+            self.warning("".join(e.args) if getattr(e, "args", None) else str(e))
             return
 
-        # ##y 是离散    k 是网格  "固定聚类数目num输出"：num  是特征选择数    q是阈值截断数    mode 是相似度系数类型
-        #
-        dataaa = self.data.filter(self.nn)
-        print('dataaa', dataaa)
-        print('log_names', self.te_zheng_list)
-        print('y', self.li_san_list[0])
-        print('k', int(self.wang_ge))
-        print('q', self.yu_zhi_jie_duan)
-        print('num', self.te_zheng_change)
-        print('loglists', self.loglist)
-        print('modeR', 'random')
-        print('target', 'RRT')
-        print('mode', self.type_change)
-        print('outmodetype', self.fangfa)
+        if not result:
+            return
 
-        # path = r"C:\Users\LHiennn\Desktop\测试数据\240425150821_分类异常值去除.xlsx"
-        # dataaaaaaa = pd.read_excel(path)
+        GDOH_cluster_data = result.get("cluster_df")
+        Jcorr = result.get("overlap_df")
+        Jcorr1 = result.get("sensitivity_df")
 
-        # # 执行
-        # GDOH_cluster_data, Jcorr , Jcorr1 = self.GDOH_output(data= dataaa, log_names=self.loglist, y=self.li_san_list[0], k=self.wang_ge, q=self.yu_zhi_jie_duan, num=self.te_zheng_change,
-        #                           loglists=self.te_zheng_list, modeR=self.modeR, target=self.target,
-        #                           mode=self.type_change, outmodetype=self.fangfa)
-
-        GDOH_cluster_data, Jcorr, Jcorr1 = runmain.GDOH_output(data=self.excel_file_path, log_names=self.te_zheng_list,
-                                                               y=self.li_san_list[0], k=int(self.wang_ge),
-                                                               q=self.yu_zhi_jie_duan, num=self.te_zheng_change,
-                                                               loglists=self.loglist,
-                                                               modeR='random', target='RRT', mode=self.type_change,
-                                                               outmodetype=self.fangfa)
-
-        print('GDOH_cluster_data', GDOH_cluster_data)
-        print('Jcorr', Jcorr)
-        print('Jcorr1', Jcorr1)
-
-        # def GDOH_output(data, names, y, k=10, q=0.5, num=4, loglists=['ILD', 'RT', 'RI', 'RXO', 'RD', 'RS', 'RMSF'],
-        #                 modeR='random', target='RRT', mode='GDOH2D', outmodetype="固定聚类数目输出"):
-        #
-        # 保存
+        # 保留老输出逻辑
         filename = self.save(GDOH_cluster_data, fname="层次聚类成果数据表")
         filename1 = self.save(Jcorr, fname="重叠度系数矩阵")
+
         if Jcorr1 is not None:
             filename2 = self.save(Jcorr1, fname="敏感特征矩阵")
             self.Outputs.GDOH_Sensitivity_Matrix_data.send(table_from_frame(Jcorr1))
             self.Outputs.GDOH_Sensitivity_Matrix_data_list.send([Jcorr1])
             self.Outputs.raw.send({'maindata': Jcorr1, 'target': [], 'future': [], 'filename': filename2})
 
-        # 发送
         self.Outputs.GDOH_cluster_data.send(table_from_frame(GDOH_cluster_data))
         self.Outputs.GDOH_cluster_data_list.send([GDOH_cluster_data])
         self.Outputs.raw.send({'maindata': GDOH_cluster_data, 'target': [], 'future': [], 'filename': filename})
@@ -269,6 +330,214 @@ class Widget(OWWidget):
         self.Outputs.GDOH_Overlapping_Matrix_data.send(table_from_frame(Jcorr))
         self.Outputs.GDOH_Overlapping_Matrix_data_list.send([Jcorr])
         self.Outputs.raw.send({'maindata': Jcorr, 'target': [], 'future': [], 'filename': filename1})
+
+        # 新增 payload 输出
+        try:
+            out_payload = self.build_output_payload(GDOH_cluster_data, Jcorr, Jcorr1)
+            self.Outputs.payload.send(out_payload)
+            print("payload 输出成功::::", PayloadManager.summary(out_payload))
+        except Exception as e:
+            self.warning(f"payload 输出失败: {e}")
+
+    def build_output_payload(self, GDOH_cluster_data: pd.DataFrame,
+                             Jcorr: pd.DataFrame,
+                             Jcorr1: pd.DataFrame = None):
+        """
+        把层次聚类的多个结果统一封成一个 payload：
+        - item1: 聚类成果表
+        - item2: 重叠度矩阵
+        - item3: 敏感特征矩阵（如果有）
+        """
+        if self.input_payload:
+            out = PayloadManager.clone_payload(self.input_payload)
+            out["node_name"] = self.name
+            out["node_type"] = "process"
+            out["task"] = "cluster"
+            out["data_kind"] = "table_batch"
+        else:
+            out = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="process",
+                task="cluster",
+                data_kind="table_batch"
+            )
+
+        items = []
+
+        table_cluster = table_from_frame(GDOH_cluster_data)
+        items.append(
+            PayloadManager.make_item(
+                file_path=self.excel_file_path if isinstance(self.excel_file_path, str) else "",
+                orange_table=table_cluster,
+                dataframe=GDOH_cluster_data,
+                sheet_name="",
+                role="cluster",
+                meta={
+                    "source_widget": self.name,
+                    "similarity_mode": self.type_change,
+                    "output_mode": self.fangfa,
+                    "selected_features": list(self.te_zheng_list),
+                    "selected_targets": list(self.li_san_list),
+                },
+                uid=""
+            )
+        )
+
+        table_overlap = table_from_frame(Jcorr)
+        items.append(
+            PayloadManager.make_item(
+                file_path="",
+                orange_table=table_overlap,
+                dataframe=Jcorr,
+                sheet_name="",
+                role="overlap_matrix",
+                meta={
+                    "source_widget": self.name,
+                    "similarity_mode": self.type_change,
+                },
+                uid=""
+            )
+        )
+
+        if Jcorr1 is not None:
+            table_sensitivity = table_from_frame(Jcorr1)
+            items.append(
+                PayloadManager.make_item(
+                    file_path="",
+                    orange_table=table_sensitivity,
+                    dataframe=Jcorr1,
+                    sheet_name="",
+                    role="sensitivity_matrix",
+                    meta={
+                        "source_widget": self.name,
+                        "similarity_mode": self.type_change,
+                    },
+                    uid=""
+                )
+            )
+        else:
+            table_sensitivity = None
+
+        out = PayloadManager.replace_items(out, items, data_kind="table_batch")
+
+        out = PayloadManager.set_result(
+            out,
+            orange_table=table_cluster,
+            dataframe=GDOH_cluster_data,
+            extra={
+                "cluster_table": table_cluster,
+                "cluster_dataframe": GDOH_cluster_data,
+                "overlap_table": table_overlap,
+                "overlap_dataframe": Jcorr,
+                "sensitivity_table": table_sensitivity,
+                "sensitivity_dataframe": Jcorr1,
+            }
+        )
+
+        out = PayloadManager.update_context(
+            out,
+            selected_features=list(self.te_zheng_list),
+            selected_targets=list(self.li_san_list),
+            similarity_mode=self.type_change,
+            output_mode=self.fangfa,
+            grid_count=self.wang_ge,
+            threshold_q=self.yu_zhi_jie_duan,
+            cluster_num=self.te_zheng_change,
+            input_file_names=list(self.input_file_names) if self.input_file_names else [],
+        )
+
+        out["legacy"].update({
+            "cluster_list": [GDOH_cluster_data],
+            "overlap_matrix_list": [Jcorr],
+            "sensitivity_matrix_list": [Jcorr1] if Jcorr1 is not None else [],
+        })
+
+        return out
+
+    # def run(self):
+    #     """【核心入口方法】发送按钮回调"""
+    #     from .pkg import 层次聚类的 as runmain
+    #     if self.data is None:
+    #         self.warning('请先输入数据')
+    #         return
+    #
+    #     # ##y 是离散    k 是网格  "固定聚类数目num输出"：num  是特征选择数    q是阈值截断数    mode 是相似度系数类型
+    #     #
+    #     dataaa = self.data.filter(self.nn)
+    #     print('dataaa', dataaa)
+    #     print('log_names', self.te_zheng_list)
+    #     print('y', self.li_san_list[0])
+    #     print('k', int(self.wang_ge))
+    #     print('q', self.yu_zhi_jie_duan)
+    #     print('num', self.te_zheng_change)
+    #     print('loglists', self.loglist)
+    #     print('modeR', 'random')
+    #     print('target', 'RRT')
+    #     print('mode', self.type_change)
+    #     print('outmodetype', self.fangfa)
+    #
+    #     # path = r"C:\Users\LHiennn\Desktop\测试数据\240425150821_分类异常值去除.xlsx"
+    #     # dataaaaaaa = pd.read_excel(path)
+    #
+    #     # # 执行
+    #     # GDOH_cluster_data, Jcorr , Jcorr1 = self.GDOH_output(data= dataaa, log_names=self.loglist, y=self.li_san_list[0], k=self.wang_ge, q=self.yu_zhi_jie_duan, num=self.te_zheng_change,
+    #     #                           loglists=self.te_zheng_list, modeR=self.modeR, target=self.target,
+    #     #                           mode=self.type_change, outmodetype=self.fangfa)
+    #
+    #     GDOH_cluster_data, Jcorr, Jcorr1 = runmain.GDOH_output(data=self.excel_file_path, log_names=self.te_zheng_list,
+    #                                                            y=self.li_san_list[0], k=int(self.wang_ge),
+    #                                                            q=self.yu_zhi_jie_duan, num=self.te_zheng_change,
+    #                                                            loglists=self.loglist,
+    #                                                            modeR='random', target='RRT', mode=self.type_change,
+    #                                                            outmodetype=self.fangfa)
+    #
+    #     print('GDOH_cluster_data', GDOH_cluster_data)
+    #     print('Jcorr', Jcorr)
+    #     print('Jcorr1', Jcorr1)
+    #
+    #     # def GDOH_output(data, names, y, k=10, q=0.5, num=4, loglists=['ILD', 'RT', 'RI', 'RXO', 'RD', 'RS', 'RMSF'],
+    #     #                 modeR='random', target='RRT', mode='GDOH2D', outmodetype="固定聚类数目输出"):
+    #     #
+    #     # 保存
+    #     filename = self.save(GDOH_cluster_data, fname="层次聚类成果数据表")
+    #     filename1 = self.save(Jcorr, fname="重叠度系数矩阵")
+    #     if Jcorr1 is not None:
+    #         filename2 = self.save(Jcorr1, fname="敏感特征矩阵")
+    #         self.Outputs.GDOH_Sensitivity_Matrix_data.send(table_from_frame(Jcorr1))
+    #         self.Outputs.GDOH_Sensitivity_Matrix_data_list.send([Jcorr1])
+    #         self.Outputs.raw.send({'maindata': Jcorr1, 'target': [], 'future': [], 'filename': filename2})
+    #
+    #     # 发送
+    #     self.Outputs.GDOH_cluster_data.send(table_from_frame(GDOH_cluster_data))
+    #     self.Outputs.GDOH_cluster_data_list.send([GDOH_cluster_data])
+    #     self.Outputs.raw.send({'maindata': GDOH_cluster_data, 'target': [], 'future': [], 'filename': filename})
+    #
+    #     self.Outputs.GDOH_Overlapping_Matrix_data.send(table_from_frame(Jcorr))
+    #     self.Outputs.GDOH_Overlapping_Matrix_data_list.send([Jcorr])
+    #     self.Outputs.raw.send({'maindata': Jcorr, 'target': [], 'future': [], 'filename': filename1})
+
+    def run(self):
+        """【核心入口方法】发送按钮回调"""
+        if self.data is None:
+            self.warning('请先输入数据')
+            return
+
+        if not self.te_zheng_list:
+            self.warning('请先选择特征属性')
+            return
+
+        if not self.li_san_list:
+            self.warning('请先选择目标属性')
+            return
+
+        ok = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_cluster_task,
+            self.doneFunc
+        )
+
+        if not ok:
+            self.warning("已有任务正在运行，请稍后再试")
 
     def read(self):
         """读取数据方法"""
@@ -568,6 +837,34 @@ class Widget(OWWidget):
         else:
             self.save_path = None
 
+    def _apply_payload_dataframe(self, df: pd.DataFrame, source_path: str = ""):
+        """
+        payload 适配辅助：
+        1. 用 dataframe 继续驱动原有 UI/read 逻辑
+        2. 给 runmain.GDOH_output 准备 excel_file_path
+           - 如果 payload item 自带 file_path，就优先用它
+           - 否则把 dataframe 临时保存成 xlsx，再把这个路径给旧逻辑
+        """
+        if df is None:
+            self.data = None
+            self.excel_file_path = None
+            return
+
+        self.data = df.copy()
+
+        if source_path and isinstance(source_path, str):
+            self.excel_file_path = source_path
+        else:
+            folder_path = './config_Cengduan/层次聚类'
+            os.makedirs(folder_path, exist_ok=True)
+            temp_path = os.path.join(folder_path, '层次聚类_payload输入.xlsx')
+            self.data.to_excel(temp_path, index=False)
+            self.excel_file_path = temp_path
+
+        self.read()
+
+
+
     # 创造表格（行，列，是否固定列）
     def create_table(self, row: int, col: int, fixed=False):
         table_temp = QTableWidget(row, col)
@@ -596,6 +893,10 @@ class Widget(OWWidget):
         super().__init__()
         self.ddf = pd.DataFrame()
         self.te_zheng_list = []
+
+        self.input_payload = None
+        self.current_input_item = None
+        self.input_file_names = []
         layout = QGridLayout()
         layout.setSpacing(3)
         layout.setHorizontalSpacing(10)
@@ -1422,8 +1723,8 @@ class Widget(OWWidget):
             for i, kez in enumerate(kezzs):
                 data1212.loc[data1212[y] == kez, target] = target + str(i + 1)
             # 保存数据表
-            data1212.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '固定聚类数目' + str(
-                num) + mode + '层次聚类成果数据表.xlsx'))
+            # data1212.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '固定聚类数目' + str(
+            #     num) + mode + '层次聚类成果数据表.xlsx'))
             return data1212
         # 阈阀值q截断输出模式
         elif outmodetype == "阈阀值q截断输出":
@@ -1471,8 +1772,8 @@ class Widget(OWWidget):
             for i, kez in enumerate(kezzs):
                 data1212.loc[data1212[y] == kez, target] = target + str(i + 1)
             # 保存数据表
-            data1212.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '阈阀值' + str(
-                q) + mode + '层次聚类成果数据表.xlsx'))
+            # data1212.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '阈阀值' + str(
+            #     q) + mode + '层次聚类成果数据表.xlsx'))
             return data1212
 
     def GDOH_Matrix(self, data, names, y, k, q, loglists=None, modeR='random',
@@ -1511,12 +1812,12 @@ class Widget(OWWidget):
             J_corr1 = pd.DataFrame(Overlapping_Matrix2)
             J_corr1.columns = kes
             J_corr1.index = kes
-            J_corr1.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '_GDOH1D_敏感特征矩阵.xlsx'))
+            # J_corr1.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '_GDOH1D_敏感特征矩阵.xlsx'))
             # 创建DataFrame，保存重叠度系数矩阵
             J_corr = pd.DataFrame(Overlapping_Matrix)
             J_corr.columns = kes
             J_corr.index = kes
-            J_corr.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '_GDOH1D_重叠度系数矩阵.xlsx'))
+            # J_corr.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '_GDOH1D_重叠度系数矩阵.xlsx'))
             return J_corr, J_corr1
         elif mode == 'GDOH2D':
             Overlapping_Matrix2 = np.zeros((len(kes), len(kes))).astype(str)
@@ -1530,12 +1831,12 @@ class Widget(OWWidget):
             J_corr1 = pd.DataFrame(Overlapping_Matrix2)
             J_corr1.columns = kes
             J_corr1.index = kes
-            J_corr1.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '_GDOH2D_敏感特征矩阵.xlsx'))
+            # J_corr1.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '_GDOH2D_敏感特征矩阵.xlsx'))
             # 创建DataFrame，保存重叠度系数矩阵
             J_corr = pd.DataFrame(Overlapping_Matrix)
             J_corr.columns = kes
             J_corr.index = kes
-            J_corr.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '_GDOH2D_重叠度系数矩阵.xlsx'))
+            # J_corr.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '_GDOH2D_重叠度系数矩阵.xlsx'))
             return J_corr, J_corr1
         elif mode == 'GDOHMD':
             for i, kei in enumerate(kes):
@@ -1546,7 +1847,7 @@ class Widget(OWWidget):
             J_corr = pd.DataFrame(Overlapping_Matrix)
             J_corr.columns = kes
             J_corr.index = kes
-            J_corr.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '_GDOHMD_重叠度系数矩阵.xlsx'))
+            # J_corr.to_excel(os.path.join(outpath, '目标' + str(y) + '网格数' + str(k) + '_GDOHMD_重叠度系数矩阵.xlsx'))
             return J_corr
 
     def GDOH_output(self, data, log_names, y, k, q, num,
