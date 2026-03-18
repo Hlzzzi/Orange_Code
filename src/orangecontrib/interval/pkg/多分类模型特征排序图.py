@@ -194,7 +194,7 @@ def feature_selection_From_Model(data, features, target, classnames, othernames,
                                  nanlists=[-10000, -9999, -999, -999.25, 999.25, 999, 9999, 10000],
                                  modeltype='RandomForestClassifier',
                                  modetype='特征选择数', k=10, select_number=10, cutoff=0.5,
-                                 figtypes=['特征重叠度排序图']):
+                                 figtypes=['特征重叠度排序图'], show_fig=True):
     # outpath_DD = join_path(savepath, foldername)
     # outpath_figure = join_path(outpath_DD, '特征图')
     # outpath_table1 = join_path(outpath_DD, '特征排序表')
@@ -210,7 +210,7 @@ def feature_selection_From_Model(data, features, target, classnames, othernames,
         clf = LogisticRegression()
     elif modeltype in ['LGBMClassifier', '轻量级梯度提升树分类算法']:
         # from sklearn.ensemble import LGBMClassifier
-        from sklearn.lightgbm import LGBMClassifier
+        from lightgbm import LGBMClassifier
         clf = LGBMClassifier(n_estimators=100)
     elif modeltype in ['RandomForestClassifier', '随机森林分类算法']:
         from sklearn.ensemble import RandomForestClassifier
@@ -233,7 +233,19 @@ def feature_selection_From_Model(data, features, target, classnames, othernames,
     from sklearn.feature_selection import SelectFromModel
     # class sklearn.feature_selection.SelectFromModel(estimator, *, threshold=None, prefit=False, norm_order=1, max_features=None, importance_getter='auto')
     clf.fit(X, y)
-    importance = clf.feature_importances_
+
+    if hasattr(clf, "feature_importances_"):
+        importance = np.asarray(clf.feature_importances_, dtype=float)
+    elif hasattr(clf, "coef_"):
+        coef = np.asarray(clf.coef_, dtype=float)
+        if coef.ndim == 1:
+            importance = np.abs(coef)
+        else:
+            importance = np.mean(np.abs(coef), axis=0)
+    else:
+        raise AttributeError(
+            f"{type(clf).__name__} 没有可用于排序的 feature_importances_ 或 coef_ 属性"
+        )
     rankdata = pd.DataFrame([])
     rankdata['特征'] = features
     rankdata['影响因子'] = importance
@@ -241,11 +253,12 @@ def feature_selection_From_Model(data, features, target, classnames, othernames,
     result['影响因子' + '归一化'] = 100 * (abs(result['影响因子']) - abs(result['影响因子']).min()) / (
                 abs(result['影响因子']).max() - abs(result['影响因子']).min())
     result['影响因子' + '贡献率'] = 100 * (abs(result['影响因子'])) / (sum(abs(result['影响因子'])))
+    result['重要性'] = result['影响因子归一化'] / 100.0
     # datasave(result, outpath_table1, str(target) + str(modeltype) + '特征排序表', savemode=savemode)
     if modetype == '特征选择数':
         bestfeatures = result['特征'].tolist()[:select_number]
     elif modetype == '阈阀值特征选择':
-        bestfeatures = result['特征'].loc[result['重要性'] >= cutoff].tolist()
+        bestfeatures = result.loc[result['重要性'] >= cutoff, '特征'].tolist()
     othernamess = []
     for othername in othernames:
         if othername in data.columns:
@@ -270,7 +283,10 @@ def feature_selection_From_Model(data, features, target, classnames, othernames,
                     plt.xlabel('影响因子', fontsize=25)
                     # plt.savefig(outpath_figure + str(target) + str(modeltype) + '排序分析图.png', dpi=300,
                     #             bbox_inches='tight')
-                    plt.show()
+                    if show_fig:
+                        plt.show()
+                    else:
+                        plt.close()
                 else:
                     plt.figure(figsize=(8, len(result)))  # 设置图片背景的参数
                     y_data = result['影响因子'][::-1]
@@ -283,7 +299,10 @@ def feature_selection_From_Model(data, features, target, classnames, othernames,
                     plt.xlabel('影响因子', fontsize=25)
                     # plt.savefig(outpath_figure + str(target) + str(modeltype) + '特征排序分析图.png', dpi=300,
                     #             bbox_inches='tight')
-                    plt.show()
+                    if show_fig:
+                        plt.show()
+                    else:
+                        plt.close()
             elif figtype == '特征归一化排序图':
                 if len(result) < 12:
                     plt.figure(figsize=(8, 12))  # 设置图片背景的参数
@@ -298,7 +317,10 @@ def feature_selection_From_Model(data, features, target, classnames, othernames,
                     plt.xlabel('影响因子归一化', fontsize=25)
                     # plt.savefig(outpath_figure + str(target) + str(modeltype) + '特征影响因子归一化排序分析图.png',
                     #             dpi=300, bbox_inches='tight')
-                    plt.show()
+                    if show_fig:
+                        plt.show()
+                    else:
+                        plt.close()
                 else:
                     plt.figure(figsize=(8, len(result)))  # 设置图片背景的参数
                     y_data = result['影响因子归一化'][::-1]
@@ -311,7 +333,10 @@ def feature_selection_From_Model(data, features, target, classnames, othernames,
                     plt.xlabel('影响因子归一化', fontsize=25)
                     # plt.savefig(outpath_figure + str(target) + str(modeltype) + '特征排序分析图.png', dpi=300,
                     #             bbox_inches='tight')
-                    plt.show()
+                    if show_fig:
+                        plt.show()
+                    else:
+                        plt.close()
             elif figtype == '特征贡献率排序图':
                 if len(result) < 12:
                     plt.figure(figsize=(8, 12))  # 设置图片背景的参数
@@ -326,7 +351,10 @@ def feature_selection_From_Model(data, features, target, classnames, othernames,
                     plt.xlabel('影响因子贡献率', fontsize=25)
                     # plt.savefig(outpath_figure + str(target) + str(modeltype) + '影响因子贡献率排序分析图.png', dpi=300,
                     #             bbox_inches='tight')
-                    plt.show()
+                    if show_fig:
+                        plt.show()
+                    else:
+                        plt.close()
                 else:
                     plt.figure(figsize=(8, len(result)))  # 设置图片背景的参数
                     y_data = result['影响因子贡献率'][::-1]
@@ -339,7 +367,10 @@ def feature_selection_From_Model(data, features, target, classnames, othernames,
                     plt.xlabel('影响因子贡献率', fontsize=25)
                     # plt.savefig(outpath_figure + str(target) + str(modeltype) + '特征影响因子贡献率排序图.png', dpi=300,
                     #             bbox_inches='tight')
-                    plt.show()
+                    if show_fig:
+                        plt.show()
+                    else:
+                        plt.close()
             elif figtype == '优选特征频率直方图':
                 fig = plt.figure(figsize=(len(bestfeatures) * 4, (len(classnames)) * 4))
                 colors = get_colors(classnames)
@@ -357,20 +388,23 @@ def feature_selection_From_Model(data, features, target, classnames, othernames,
                 plt.tight_layout()
                 # plt.savefig(outpath_figure + str(target) + str(modeltype) + '优选特征频率直方图.png', dpi=300,
                 #             bbox_inches='tight')
-                plt.show()
+                if show_fig:
+                    plt.show()
+                else:
+                    plt.close()
             # elif figtype=='优选特征散点矩阵图':
     # print(result)
     # selector = SelectFromModel(estimator=clf).fit(X, y)
     # X_new=selector.transform(X)
     return result , bestdata
 
-
-# path = r"C:\Users\LHiennn\Desktop\测试数据\分层\240625142555_数据筛选.xlsx"
+#
+# path = r"D:\测试数据\多酚类特征图.xlsx"
 # data = data_read(path)
 # target = '岩性'
 # Classifiersnames = ["SGDClassifier", "RidgeClassifier", "LogisticRegression", "DecisionTreeClassifier",
 #                     "ExtraTreeClassifier", "RandomForestClassifier"]
-# classnames = ['浅黄色含钙泥质粉砂岩', '浅黄色泥质粉砂岩']
+# classnames = ['含粉砂页岩', '浅蓝绿色含粉砂页岩']
 # features = ['GR', 'LLD', 'MSFL', 'AC', 'DEN', 'CNL']
 # othernames = []
 # allmodeltypelist = [ '逻辑回归分类算法', '轻量级梯度提升树分类算法', '随机森林分类算法', '决策树分类算法', '梯度提升树分类算法', 'AdaBoost树分类算法', '外联树分类算法']

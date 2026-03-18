@@ -18,6 +18,9 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
 
 from .pkg import 多分类模型特征排序图 as runmain
 
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
+
 
 class Widget(OWWidget):
     # Widget needs a name, or it is considered an abstract widget
@@ -36,6 +39,9 @@ class Widget(OWWidget):
         # data = Input("数据", list, auto_summary=False)
         # datapath = Input("数据路径", str, auto_summary=False)
         datalist = Input("DataFrame数据", list, auto_summary=False)
+
+        # 新增标准 payload 输入
+        payload = Input("payload", dict, auto_summary=False)
         
 
 
@@ -81,14 +87,66 @@ class Widget(OWWidget):
     #     else:
     #         self.data = None
 
+    def _coerce_to_dataframe(self, data):
+        if data is None:
+            return None
+
+        obj = data[0] if isinstance(data, list) and len(data) > 0 else data
+
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+        elif isinstance(obj, pd.DataFrame):
+            return obj.copy()
+
+        return None
+
     @Inputs.datalist
     def set_data(self, data):
         if data:
-            self.data = data[0]
+            self.ALLdata = data
+            self.data = self._coerce_to_dataframe(data)
             self.read()
+        else:
+            self.ALLdata = None
+            self.data = None
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="process",
+            task="feature_rank",
+            data_kind="table_batch",
+        )
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
+        self._apply_payload_input(self.input_payload)
+
+    def _apply_payload_input(self, payload):
+        self.payload_file_names = PayloadManager.get_file_names(payload)
+        self.payload_file_paths = PayloadManager.get_file_paths(payload)
+
+        primary_df = PayloadManager.get_single_dataframe(payload)
+        primary_table = PayloadManager.get_single_table(payload)
+
+        if primary_df is not None:
+            self.data = primary_df.copy()
+        elif primary_table is not None:
+            df = table_to_frame(primary_table)
+            self.merge_metas(primary_table, df)
+            self.data = df
         else:
             self.data = None
 
+        self.ALLdata = [self.data] if self.data is not None else []
+        if self.data is not None:
+            self.read()
    
 
     firstdepths = None
@@ -102,6 +160,9 @@ class Widget(OWWidget):
 
         tableSX = Output("筛选大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
         dataSX = Output("筛选数据List", list, auto_summary=False)  # 输出给控件
+
+        # 新增标准 payload 输出
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -131,6 +192,10 @@ class Widget(OWWidget):
     default_output_path = "D:\\"  # 默认保存路径
     output_super_folder = name  # 保存父文件夹名
 
+    input_payload = None
+    payload_file_names = None
+    payload_file_paths = None
+
     @property
     def output_file_name(self) -> str:
         from datetime import datetime
@@ -158,23 +223,43 @@ class Widget(OWWidget):
 
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
     def ignore_function(self, text, prop):
-        # 执行 '忽略' 选项后的处理逻辑
-        # print("忽略选项被选择，执行相应的函数")
         if text == '忽略':
             print("忽略选项被选择，执行相应的函数", prop)
             columns = prop
             if self.data.index.duplicated().any():
                 self.data.reset_index(drop=True, inplace=True)
-            self.data = self.data.drop(columns=columns)
+            if columns in self.data.columns:
+                self.data = self.data.drop(columns=columns)
+
         elif text == '深度索引':
-            self.depth_index = text
+            self.depth_index = prop
             print("深度索引被选择，执行相应的函数", self.depth_index)
+
         elif text == '特征':
-            self.lognames.append(prop)
+            if prop not in self.lognames:
+                self.lognames.append(prop)
             print("特征被选择，执行相应的函数", self.lognames)
+
         elif text == '其他目标':
-            self.othernames.append(prop)
+            if prop not in self.othernames:
+                self.othernames.append(prop)
             print("其他目标被选择，执行相应的函数", self.othernames)
+
+    def _sync_runtime_param_from_auto_detect(self, prop, value_type, func_type):
+        if value_type == '指数数值':
+            if prop not in self.lognames:
+                self.lognames.append(prop)
+
+        if func_type == '深度索引':
+            self.depth_index = prop
+        elif func_type == '目标':
+            self.target_sj = prop
+        elif func_type == '特征':
+            if prop not in self.lognames:
+                self.lognames.append(prop)
+        elif func_type == '其他目标':
+            if prop not in self.othernames:
+                self.othernames.append(prop)
 
     select_number = 10
     sd_min = 45
@@ -183,65 +268,312 @@ class Widget(OWWidget):
     K = 10
     cut_corr = 0.5
     space = 5
+    #
+    # def run(self):
+    #     # """【核心入口方法】发送按钮回调"""
+    #     if self.data is None:
+    #         self.warning('请先输入数据')
+    #         return
+    #
+    #     # 将target_sj 列中的数据 去重后存在列表中
+    #     classnames = self.data[self.target_sj].unique().tolist()
+    #     ##各项参数如下：
+    #     print('self.lognames:', self.lognames)
+    #     print('self.target_sj:', self.target_sj)
+    #     print('self.classnames:', classnames)
+    #     print('self.othernames:', self.othernames)
+    #
+    #     print('self.cut_corr:', self.cut_corr)
+    #     print('self.select_number:', self.select_number)
+    #
+    #     print('多选', self.figuretypes)
+    #
+    #     print('self.modetype:', self.modetype)
+    #     print('self.modeltype:', self.modeltype)
+    #
+    #     # PX, SX = feature_selection_From_Model(data, features, target, classnames, othernames,
+    #     #                                       nanlists=[-10000, -9999, -999, -999.25, 999.25, 999, 9999, 10000],
+    #     #                                       modeltype='随机森林分类算法',
+    #     #                                       modetype='特征选择数', select_number=10, cutoff=0.5,
+    #     #                                       figtypes=['特征重叠度排序图', '特征归一化排序图', '特征贡献率排序图',
+    #     #                                                 '优选特征频率直方图'])
+    #
+    #     resultPX, resultSX = runmain.feature_selection_From_Model(self.data, self.lognames, self.target_sj, classnames,
+    #                                                               self.othernames,
+    #                                                               nanlists=[-10000, -9999, -999, -999.25, 999.25, 999,
+    #                                                                         9999, 10000],
+    #                                                               modeltype=self.modeltype, modetype=self.modetype,
+    #                                                               select_number=self.select_number,
+    #                                                               cutoff=self.cut_corr,
+    #                                                               figtypes=self.figuretypes, k=self.K)
+    #
+    #     self.save(resultPX)
+    #     self.save(resultSX)
+    #
+    #     self.Outputs.tablePX.send(table_from_frame(resultPX))
+    #     self.Outputs.dataPX.send([resultPX])
+    #
+    #     self.Outputs.tableSX.send(table_from_frame(resultSX))
+    #     self.Outputs.dataSX.send([resultSX])
 
     def run(self):
-        # """【核心入口方法】发送按钮回调"""
         if self.data is None:
             self.warning('请先输入数据')
             return
 
-        # 将target_sj 列中的数据 去重后存在列表中
-        classnames = self.data[self.target_sj].unique().tolist()
-        ##各项参数如下：
+        if not self.target_sj or self.target_sj not in self.data.columns:
+            self.warning('请先设置目标列')
+            return
+
+        if not self.lognames:
+            self.warning('请先设置特征列')
+            return
+
+        classnames = self.data[self.target_sj].dropna().unique().tolist()
+
         print('self.lognames:', self.lognames)
         print('self.target_sj:', self.target_sj)
         print('self.classnames:', classnames)
         print('self.othernames:', self.othernames)
-
         print('self.cut_corr:', self.cut_corr)
         print('self.select_number:', self.select_number)
-
         print('多选', self.figuretypes)
-
         print('self.modetype:', self.modetype)
         print('self.modeltype:', self.modeltype)
 
-        # PX, SX = feature_selection_From_Model(data, features, target, classnames, othernames,
-        #                                       nanlists=[-10000, -9999, -999, -999.25, 999.25, 999, 9999, 10000],
-        #                                       modeltype='随机森林分类算法',
-        #                                       modetype='特征选择数', select_number=10, cutoff=0.5,
-        #                                       figtypes=['特征重叠度排序图', '特征归一化排序图', '特征贡献率排序图',
-        #                                                 '优选特征频率直方图'])
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_rank_task,
+            self._on_run_finished,
+            data=self.data.copy(),
+            features=list(self.lognames),
+            target=self.target_sj,
+            classnames=list(classnames),
+            othernames=list(self.othernames),
+            modeltype=self.modeltype,
+            modetype=self.modetype,
+            select_number=self.select_number,
+            cutoff=self.cut_corr,
+            figtypes=list(self.figuretypes),
+            k=self.K,
+        )
 
-        resultPX, resultSX = runmain.feature_selection_From_Model(self.data, self.lognames, self.target_sj, classnames,
-                                                                  self.othernames,
-                                                                  nanlists=[-10000, -9999, -999, -999.25, 999.25, 999,
-                                                                            9999, 10000],
-                                                                  modeltype=self.modeltype, modetype=self.modetype,
-                                                                  select_number=self.select_number,
-                                                                  cutoff=self.cut_corr,
-                                                                  figtypes=self.figuretypes, k=self.K)
+        if not started:
+            self.warning("当前已有任务在运行，请稍后再试")
 
-        self.save(resultPX)
-        self.save(resultSX)
 
-        self.Outputs.tablePX.send(table_from_frame(resultPX))
+
+    def _save_result_with_suffix(self, result: pd.DataFrame, suffix: str):
+        filename = self.output_file_name.replace('.xlsx', f'_{suffix}.xlsx')
+        outputPath = self.default_output_path + self.output_super_folder
+
+        if self.save_radio == 0:
+            os.makedirs(outputPath, exist_ok=True)
+        elif self.save_radio == 1 and self.save_path:
+            outputPath = self.save_path
+        else:
+            return filename, ""
+
+        full_path = os.path.join(outputPath, filename)
+        result.to_excel(full_path, index=False)
+        return filename, full_path
+
+    def _run_rank_task(
+        self,
+        *,
+        data,
+        features,
+        target,
+        classnames,
+        othernames,
+        modeltype,
+        modetype,
+        select_number,
+        cutoff,
+        figtypes,
+        k,
+        setProgress=None,
+        isCancelled=None
+    ):
+        if setProgress:
+            setProgress(5)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True}
+
+        resultPX, resultSX = runmain.feature_selection_From_Model(
+            data,
+            features,
+            target,
+            classnames,
+            othernames,
+            nanlists=[-10000, -9999, -999, -999.25, 999.25, 999, 9999, 10000],
+            modeltype=modeltype,
+            modetype=modetype,
+            select_number=select_number,
+            cutoff=cutoff,
+            figtypes=figtypes,
+            k=k,
+            show_fig=False
+        )
+
+        if setProgress:
+            setProgress(90)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True}
+
+        return {
+            "cancelled": False,
+            "rank_df": resultPX,
+            "selected_df": resultSX,
+        }
+
+    def _on_run_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            print(e)
+            self.error("多分类模型特征排序图运行失败，请检查目标列、特征列和参数设置")
+            return
+
+        if not task_result or task_result.get("cancelled"):
+            self.warning("任务已取消")
+            return
+
+        resultPX = task_result.get("rank_df")
+        resultSX = task_result.get("selected_df")
+
+        if resultPX is None or resultSX is None:
+            self.error("未生成结果数据")
+            return
+
+        tablePX = table_from_frame(resultPX)
+        tableSX = table_from_frame(resultSX)
+
+        rank_filename, rank_file_path = self._save_result_with_suffix(resultPX, "排序大表")
+        selected_filename, selected_file_path = self._save_result_with_suffix(resultSX, "筛选大表")
+
+        self.Outputs.tablePX.send(tablePX)
         self.Outputs.dataPX.send([resultPX])
 
-        self.Outputs.tableSX.send(table_from_frame(resultSX))
+        self.Outputs.tableSX.send(tableSX)
         self.Outputs.dataSX.send([resultSX])
 
+        output_payload = self.build_output_payload(
+            rank_df=resultPX,
+            selected_df=resultSX,
+            rank_table=tablePX,
+            selected_table=tableSX,
+            rank_filename=rank_filename,
+            rank_file_path=rank_file_path,
+            selected_filename=selected_filename,
+            selected_file_path=selected_file_path,
+        )
+        self.Outputs.payload.send(output_payload)
+
+    def build_output_payload(
+        self,
+        *,
+        rank_df,
+        selected_df,
+        rank_table,
+        selected_table,
+        rank_filename,
+        rank_file_path,
+        selected_filename,
+        selected_file_path
+    ):
+        if self.input_payload is not None:
+            output_payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            output_payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="process",
+                task="feature_rank",
+                data_kind="table_batch",
+            )
+
+        item_rank = PayloadManager.make_item(
+            file_path=rank_file_path,
+            orange_table=rank_table,
+            dataframe=rank_df,
+            sheet_name="",
+            role="rank_result",
+            meta={
+                "widget": self.name,
+                "saved_file_name": rank_filename,
+                "target": self.target_sj,
+                "modeltype": self.modeltype,
+                "modetype": self.modetype,
+            }
+        )
+
+        item_selected = PayloadManager.make_item(
+            file_path=selected_file_path,
+            orange_table=selected_table,
+            dataframe=selected_df,
+            sheet_name="",
+            role="selected_result",
+            meta={
+                "widget": self.name,
+                "saved_file_name": selected_filename,
+                "target": self.target_sj,
+                "modeltype": self.modeltype,
+                "modetype": self.modetype,
+            }
+        )
+
+        output_payload = PayloadManager.replace_items(
+            output_payload,
+            [item_rank, item_selected],
+            data_kind="table_batch"
+        )
+
+        output_payload = PayloadManager.set_result(
+            output_payload,
+            orange_table=rank_table,
+            dataframe=rank_df,
+            extra={
+                "rank_file_name": rank_filename,
+                "selected_file_name": selected_filename,
+            }
+        )
+
+        output_payload = PayloadManager.update_context(
+            output_payload,
+            target=self.target_sj,
+            features=list(self.lognames),
+            othernames=list(self.othernames),
+            class_count=len(self.data[self.target_sj].dropna().unique()) if self.target_sj in self.data.columns else 0,
+            modeltype=self.modeltype,
+            modetype=self.modetype,
+            select_number=self.select_number,
+            cutoff=self.cut_corr,
+            k=self.K,
+            figtypes=list(self.figuretypes),
+        )
+
+        output_payload["legacy"].update({
+            "rank_data_list": [rank_df],
+            "selected_data_list": [selected_df],
+        })
+
+        return output_payload
+
     def read(self):
-        """读取数据方法"""
         if self.data is None:
             return
 
         self.selectedWellName = []
         self.propertyDict = {}
 
-        # 填充属性表格
-        self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
+        self.lognames = []
+        self.othernames = []
+        self.target_sj = None
+        self.depth_index = None
 
+        self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
         self.fillprpo()
 
     #################### 读取GUI上的配置 ####################
@@ -338,27 +670,61 @@ class Widget(OWWidget):
         print(f"Input at row {row}, column {column} changed to: {text}")
 
     def fillprpo(self):
-        abc = self.data.columns.tolist()
+        abc = [str(x) for x in self.data.columns.tolist()]
+
+        self.comboBoxleft1.blockSignals(True)
+        self.comboBoxleft1.clear()
         self.comboBoxleft1.addItems(abc)
 
+        if self.target_sj in abc:
+            self.comboBoxleft1.setCurrentText(self.target_sj)
+        elif abc:
+            self.target_sj = abc[0]
+            self.comboBoxleft1.setCurrentIndex(0)
+
+        self.comboBoxleft1.blockSignals(False)
+
+        try:
+            self.comboBoxleft1.currentIndexChanged.disconnect()
+        except Exception:
+            pass
         self.comboBoxleft1.currentIndexChanged.connect(self.onComboBoxIndexChanged1)
-        # self.comboBoxleft3.currentIndexChanged.connect(self.onComboBoxIndexChanged3)
+
+        self.onComboBoxIndexChanged1(self.comboBoxleft1.currentIndex())
 
     def onComboBoxIndexChanged1(self, index):
-        # 获取当前选择的文本
         selected_text1 = self.comboBoxleft1.currentText()
         self.target_sj = selected_text1
         print(f"当前选择target是：{selected_text1}", self.target_sj)
-        if self.target_sj is None:
-            print('请选择target')
-        else:
-            # 根据target_sj的值 提取到此列去重的数据并存在列表中
-            self.namedata12 = self.data[self.target_sj].unique().tolist()
-            print(self.namedata12)
-            self.comboBoxleft11.addItems(self.namedata12)
-            self.comboBoxleft11.currentIndexChanged.connect(self.onComboBoxIndexChanged11)
-            self.comboBoxleft22.addItems(self.namedata12)
-            self.comboBoxleft22.currentIndexChanged.connect(self.onComboBoxIndexChanged22)
+
+        if not self.target_sj or self.target_sj not in self.data.columns:
+            return
+
+        values = self.data[self.target_sj].dropna().astype(str).unique().tolist()
+
+        self.comboBoxleft11.blockSignals(True)
+        self.comboBoxleft22.blockSignals(True)
+
+        self.comboBoxleft11.clear()
+        self.comboBoxleft22.clear()
+
+        self.comboBoxleft11.addItems(['请选择'] + values)
+        self.comboBoxleft22.addItems(['请选择'] + values)
+
+        self.comboBoxleft11.blockSignals(False)
+        self.comboBoxleft22.blockSignals(False)
+
+        try:
+            self.comboBoxleft11.currentIndexChanged.disconnect()
+        except Exception:
+            pass
+        try:
+            self.comboBoxleft22.currentIndexChanged.disconnect()
+        except Exception:
+            pass
+
+        self.comboBoxleft11.currentIndexChanged.connect(self.onComboBoxIndexChanged11)
+        self.comboBoxleft22.currentIndexChanged.connect(self.onComboBoxIndexChanged22)
 
     def onComboBoxIndexChanged11(self, index):
         # 获取当前选择的文本
@@ -486,6 +852,12 @@ class Widget(OWWidget):
             # 连接 'currentTextChanged' 信号到槽函数
             comboBox.currentTextChanged.connect(lambda text, prop=prop: self.ignore_function(text, prop))
             table.setCellWidget(i, 2, comboBox)
+
+            self._sync_runtime_param_from_auto_detect(
+                prop=prop,
+                value_type=self.propertyDict[tableName][prop]['type'],
+                func_type=self.propertyDict[tableName][prop]['funcType']
+            )
 
             if self.propertyDict[tableName][prop]['type'] == typeList[2]:  # 文本类型
                 self.ddf[prop] = data[prop]
@@ -945,77 +1317,45 @@ class Widget(OWWidget):
 
     def onCheckBoxChanged(self, state):
         sender = self.sender()
-        if sender == self.checkBox1:
-            if state == Qt.Checked:
-                print("特征重叠度排序图已选中")
-                self.figuretypes.append('特征重叠度排序图')
-            else:
-                print("特征重叠度排序图未选中")
-                self.figuretypes.remove('特征重叠度排序图')
 
-        elif sender == self.checkBox2:
-            if state == Qt.Checked:
-                print("特征归一化排序图已选中")
-                self.figuretypes.append('特征归一化排序图')
-            else:
-                print("特征归一化排序图未选中")
-                self.figuretypes.remove('特征归一化排序图')
+        mapping = {
+            self.checkBox1: '特征重叠度排序图',
+            self.checkBox2: '特征归一化排序图',
+            self.checkBox3: '特征贡献率排序图',
+            self.checkBox4: '优选特征频率直方图',
+        }
 
-        elif sender == self.checkBox3:
-            if state == Qt.Checked:
-                print("特征贡献率排序图已选中")
-                self.figuretypes.append('特征贡献率排序图')
-            else:
-                print("特征贡献率排序图未选中")
-                self.figuretypes.remove('特征贡献率排序图')
+        value = mapping.get(sender)
+        if value is None:
+            return
 
-        elif sender == self.checkBox4:
-            if state == Qt.Checked:
-                print("优选特征频率直方图已选中")
-                self.figuretypes.append('优选特征频率直方图')
-            else:
-                print("优选特征频率直方图未选中")
-                self.figuretypes.remove('优选特征频率直方图')
+        if state == Qt.Checked:
+            if value not in self.figuretypes:
+                self.figuretypes.append(value)
+        else:
+            if value in self.figuretypes:
+                self.figuretypes.remove(value)
+
         print(self.figuretypes)
 
     def onTextChanged(self, text):
-        # 获取输入框的内容
         sender = self.sender()
-        if sender == self.input4:
-            text = int(text)
-            self.sd_min = text
-            print("最小段间距:", self.sd_min)
-            print(type(self.sd_min))
-        elif sender == self.input5:
-            text = int(text)
-            self.K = text
-            print("K:", self.K)
-            print(type(self.K))
-        elif sender == self.input6:
-            text = float(text)
-            self.cut_corr = text
-            print("cut_corr:", self.cut_corr)
-            print(type(self.cut_corr))
-        elif sender == self.input7:
-            text = int(text)
-            self.select_number = text
-            print("select_number:", self.select_number)
-            print(type(self.select_number))
-        elif sender == self.input9:
-            text = int(text)
-            self.sd_max = text
-            print("最大段间距:", self.sd_max)
-            print(type(self.sd_max))
-        elif sender == self.input10:
-            text = int(text)
-            self.space = text
-            print("最小簇间距:", self.space)
-            print(type(self.space))
-        elif sender == self.input11:
-            text = int(text)
-            self.cluster_num = text
-            print("簇数:", self.cluster_num)
-            print(type(self.cluster_num))
+        text = str(text).strip()
+        if text == "":
+            return
+
+        try:
+            if sender == self.input5:
+                self.K = int(text)
+                print("K:", self.K)
+            elif sender == self.input6:
+                self.cut_corr = float(text)
+                print("cut_corr:", self.cut_corr)
+            elif sender == self.input7:
+                self.select_number = int(text)
+                print("select_number:", self.select_number)
+        except ValueError:
+            print("输入值格式错误:", text)
 
     def remove_filter(self, filter_layout):
         for i in reversed(range(filter_layout.count())):
