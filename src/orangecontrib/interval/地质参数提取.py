@@ -17,6 +17,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel
 
 from .pkg import 单井地质参数提取 as runmain
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 class Widget(OWWidget):
@@ -37,6 +39,9 @@ class Widget(OWWidget):
         filepath = Input("文件路径", str, auto_summary=False)
         filename = Input("文件名", list, auto_summary=False)
 
+        # 新增标准 payload 输入
+        payload = Input("payload", dict, auto_summary=False)
+
     user_input = None
     data: pd.DataFrame = None
     data_orange = None
@@ -51,20 +56,38 @@ class Widget(OWWidget):
     namedata = None
     ALLdata = None
 
+    input_payload = None
+    payload_file_names = None
+    payload_file_paths = None
+
+    def _coerce_to_dataframe(self, data):
+        if data is None:
+            return None
+
+        if isinstance(data, list) and len(data) > 0:
+            obj = data[0]
+        else:
+            obj = data
+
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+
+        if isinstance(obj, pd.DataFrame):
+            return obj.copy()
+
+        return None
+
     @Inputs.data
     def set_data(self, data):
         if data:
             print("数据输入成功::::", data)
             self.ALLdata = data
-
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.data: pd.DataFrame = df
-            elif isinstance(data[0], pd.DataFrame):
-                self.data: pd.DataFrame = data[0]
+            self.data = self._coerce_to_dataframe(data)
             self.read()
         else:
+            self.ALLdata = None
             self.data = None
 
     @Inputs.filepath
@@ -86,11 +109,71 @@ class Widget(OWWidget):
             self.user_inputname = None
         self.fillfile()
 
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="process",
+            task="extract",
+            data_kind="table_batch",
+        )
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
+        self._apply_payload_input(self.input_payload)
+
+    def _apply_payload_input(self, payload):
+        dfs = PayloadManager.get_dataframes(payload)
+        tables = PayloadManager.get_tables(payload)
+        self.payload_file_names = PayloadManager.get_file_names(payload)
+        self.payload_file_paths = PayloadManager.get_file_paths(payload)
+
+        primary_df = PayloadManager.get_single_dataframe(payload)
+        primary_table = PayloadManager.get_single_table(payload)
+
+        if primary_df is not None:
+            self.data = primary_df.copy()
+        elif primary_table is not None:
+            df = table_to_frame(primary_table)
+            self.merge_metas(primary_table, df)
+            self.data = df
+        else:
+            self.data = None
+
+        if tables:
+            self.ALLdata = tables
+        elif dfs:
+            self.ALLdata = dfs
+        elif self.data is not None:
+            self.ALLdata = [self.data]
+        else:
+            self.ALLdata = []
+
+        primary_folder = PayloadManager.get_primary_folder(payload)
+        if primary_folder:
+            self.user_inputpath = primary_folder
+        elif self.payload_file_paths:
+            # 多文件时尽量用 source_folder；没有的话退化到第一条 file_path
+            self.user_inputpath = self.payload_file_paths[0]
+        else:
+            self.user_inputpath = None
+
+        self.user_inputname = self.payload_file_names or []
+        self.fillfile()
+
+        if self.data is not None:
+            self.read()
     class Outputs:  # TODO:输出
         table = Output("数据(Data)", Table)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
         file_name = Output("文件名", list, auto_summary=False)
         file_path = Output("文件路径", str, auto_summary=False)
+
+        # 新增标准 payload 输出
+        payload = Output("payload", dict, auto_summary=False)
     @gui.deferred
     def commit(self):
         self.run()
@@ -147,19 +230,88 @@ class Widget(OWWidget):
             if self.data.index.duplicated().any():
                 self.data.reset_index(drop=True, inplace=True)
             self.data = self.data.drop(columns=columns)
+    #
+    # def run(self):
+    #     # """【核心入口方法】发送按钮回调"""
+    #     if self.data is None:
+    #         self.warning('请先输入数据')
+    #         return
+    #
+    #     # name_Y是modetype    self.wellname 是 wellname  self.LEFTlist是wellnames  self.user_inputpath是input_path   self.highcutoff是highcutoff  self.lowcutoff是lowcutoff
+    #     # self.target 是target  self.lognames是lognames   self.label是label
+    #     print('modeltype', self.nameY)
+    #
+    #     print('wellname', self.wellname)
+    #
+    #     print('input_path', self.user_inputpath)
+    #     print('highcutoff', self.highcutoff)
+    #     print('lowcutoff', self.lowcutoff)
+    #     print('target', self.target)
+    #     print('lognames', self.lognames)
+    #     print('label', self.labelss)
+    #
+    #     # 遍历列表中的每个元素
+    #     for i in range(len(self.LEFTlist)):
+    #         # 使用split()方法来分割文件名和后缀
+    #         parts = self.LEFTlist[i].split('.')
+    #         if len(parts) > 1:
+    #             # 如果有后缀，则去掉
+    #             self.LEFTlist[i] = '.'.join(parts[:-1])
+    #     print('wellnames', self.LEFTlist)
+    #
+    #     # 执行
+    #     result = runmain.getgeofeatures(
+    #         input_path=self.user_inputpath, lognames=self.lognames, wellname=self.wellname, wellnames=self.LEFTlist,
+    #         target=self.target, label=self.labelss, highcutoff=self.highcutoff, lowcutoff=self.lowcutoff,
+    #         modetype=self.nameY,
+    #     )
+    #
+    #     # getgeofeatures(input_path, lognames, wellname='wellname', wellnames=[], target=None, label=None, highcutoff=100,
+    #     #                lowcutoff=0, modetype='平均值', loglists=[], diretelists=[])
+    #     # 保存
+    #
+    #     # 删除重复的行
+    #     # df_transposed_no_duplicates = result.drop_duplicates()
+    #
+    #
+    #     # 创建一个文件夹来保存 Excel 文件
+    #     folder_path = './config_Cengduan/地质参数提取'
+    #     os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
+    #
+    #     # 保存到文件夹中的 Excel 文件
+    #     excel_file_path = os.path.join(folder_path, '地质参数提取配置文件.xlsx')
+    #
+    #
+    #     # result_df = runmain.add_filename_to_df([result], self.LEFTlist)
+    #     result_df = result
+    #     # # 保存
+    #     filename = self.save(result_df)
+    #
+    #     result_df.to_excel(excel_file_path, index=False)
+    #     #
+    #     # #
+    #     # #
+    #     # # # 发送
+    #     self.Outputs.table.send(table_from_frame(result_df))
+    #     self.Outputs.data.send([result_df])
+    #     self.Outputs.file_path.send(excel_file_path)
+    #     self.Outputs.file_name.send(['地质参数提取配置文件.xlsx'])
 
     def run(self):
-        # """【核心入口方法】发送按钮回调"""
         if self.data is None:
             self.warning('请先输入数据')
             return
 
-        # name_Y是modetype    self.wellname 是 wellname  self.LEFTlist是wellnames  self.user_inputpath是input_path   self.highcutoff是highcutoff  self.lowcutoff是lowcutoff
-        # self.target 是target  self.lognames是lognames   self.label是label
+        if not self.user_inputpath:
+            self.error('缺少文件路径，无法执行地质参数提取')
+            return
+
+        if not self.lognames:
+            self.warning('请先选择特征属性')
+            return
+
         print('modeltype', self.nameY)
-
         print('wellname', self.wellname)
-
         print('input_path', self.user_inputpath)
         print('highcutoff', self.highcutoff)
         print('lowcutoff', self.lowcutoff)
@@ -167,52 +319,262 @@ class Widget(OWWidget):
         print('lognames', self.lognames)
         print('label', self.labelss)
 
-        # 遍历列表中的每个元素
-        for i in range(len(self.LEFTlist)):
-            # 使用split()方法来分割文件名和后缀
-            parts = self.LEFTlist[i].split('.')
-            if len(parts) > 1:
-                # 如果有后缀，则去掉
-                self.LEFTlist[i] = '.'.join(parts[:-1])
-        print('wellnames', self.LEFTlist)
-
-        # 执行
-        result = runmain.getgeofeatures(
-            input_path=self.user_inputpath, lognames=self.lognames, wellname=self.wellname, wellnames=self.LEFTlist,
-            target=self.target, label=self.labelss, highcutoff=self.highcutoff, lowcutoff=self.lowcutoff,
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_geo_task,
+            self._on_run_finished,
+            input_path=self.user_inputpath,
+            selected_names=list(self.LEFTlist) if self.LEFTlist else [],
+            lognames=list(self.lognames) if self.lognames else [],
+            wellname=self.wellname,
+            target=self.target,
+            label=self.labelss,
+            highcutoff=self.highcutoff,
+            lowcutoff=self.lowcutoff,
             modetype=self.nameY,
+            all_data=self.ALLdata,
         )
 
-        # getgeofeatures(input_path, lognames, wellname='wellname', wellnames=[], target=None, label=None, highcutoff=100,
-        #                lowcutoff=0, modetype='平均值', loglists=[], diretelists=[])
-        # 保存
-
-        # 删除重复的行
-        # df_transposed_no_duplicates = result.drop_duplicates()
+        if not started:
+            self.warning("当前已有任务在运行，请稍后再试")
 
 
-        # 创建一个文件夹来保存 Excel 文件
+    def _run_geo_task(
+        self,
+        *,
+        input_path,
+        selected_names,
+        lognames,
+        wellname,
+        target,
+        label,
+        highcutoff,
+        lowcutoff,
+        modetype,
+        all_data,
+        setProgress=None,
+        isCancelled=None
+    ):
+        import tempfile
+        import uuid
+
+        if setProgress:
+            setProgress(5)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True, "result_df": None, "temp_file_path": None}
+
+        actual_input_path = input_path
+        temp_file_path = None
+
+        # 老控件左侧选的是文件名；目录模式时需要去掉扩展名
+        selected_wellnames = []
+        if selected_names:
+            if os.path.isdir(input_path):
+                for item in selected_names:
+                    base = os.path.splitext(str(item))[0]
+                    if base and base not in selected_wellnames:
+                        selected_wellnames.append(base)
+            else:
+                # 单文件模式下源算法本身是按表内井名处理，
+                # 这里左侧其实选的是文件名，所以不要把文件名塞给 wellnames
+                selected_wellnames = []
+
+        # 如果 payload / 老输入给的是多表，但路径是文件夹，仍然走原目录模式
+        # 如果路径不是有效文件/文件夹，但已经拿到了多张表，则临时合并成一个 Excel 再走单文件模式
+        if (not actual_input_path or (not os.path.isfile(actual_input_path) and not os.path.isdir(actual_input_path))) and all_data:
+            df_list = []
+            for obj in all_data:
+                df = None
+                if isinstance(obj, pd.DataFrame):
+                    df = obj.copy()
+                elif isinstance(obj, Table):
+                    df = table_to_frame(obj)
+
+                if df is not None and not df.empty:
+                    df_list.append(df)
+
+            if df_list:
+                merged_df = pd.concat(df_list, ignore_index=True, sort=False)
+                temp_dir = os.path.join(tempfile.gettempdir(), "orange_geo_extract")
+                os.makedirs(temp_dir, exist_ok=True)
+                temp_file_path = os.path.join(
+                    temp_dir,
+                    f"地质参数提取临时合并_{uuid.uuid4().hex}.xlsx"
+                )
+                merged_df.to_excel(temp_file_path, index=False)
+                actual_input_path = temp_file_path
+
+        if setProgress:
+            setProgress(30)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True, "result_df": None, "temp_file_path": temp_file_path}
+
+        result_df = runmain.getgeofeatures(
+            input_path=actual_input_path,
+            lognames=lognames,
+            wellname=wellname,
+            wellnames=selected_wellnames,
+            target=target,
+            label=label,
+            highcutoff=highcutoff,
+            lowcutoff=lowcutoff,
+            modetype=modetype,
+        )
+
+        if setProgress:
+            setProgress(90)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True, "result_df": None, "temp_file_path": temp_file_path}
+
+        return {
+            "cancelled": False,
+            "result_df": result_df,
+            "temp_file_path": temp_file_path,
+        }
+
+    def _on_run_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            print(e)
+            self.error('请填写完必要参数，再次点击运行')
+            return
+
+        if not task_result or task_result.get("cancelled"):
+            self.warning("任务已取消")
+            return
+
+        result_df = task_result.get("result_df")
+        temp_file_path = task_result.get("temp_file_path")
+
+        if result_df is None or len(result_df) == 0:
+            self.error("未生成结果数据")
+            return
+
         folder_path = './config_Cengduan/地质参数提取'
-        os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-        # 保存到文件夹中的 Excel 文件
+        os.makedirs(folder_path, exist_ok=True)
         excel_file_path = os.path.join(folder_path, '地质参数提取配置文件.xlsx')
 
-
-        # result_df = runmain.add_filename_to_df([result], self.LEFTlist)
-        result_df = result
-        # # 保存
-        filename = self.save(result_df)
-
         result_df.to_excel(excel_file_path, index=False)
-        #
-        # #
-        # #
-        # # # 发送
-        self.Outputs.table.send(table_from_frame(result_df))
+        filename = self.save(result_df)
+        result_table = table_from_frame(result_df)
+
+        # 老输出保留
+        self.Outputs.table.send(result_table)
         self.Outputs.data.send([result_df])
         self.Outputs.file_path.send(excel_file_path)
         self.Outputs.file_name.send(['地质参数提取配置文件.xlsx'])
+
+        # 新标准 payload 输出
+        output_payload = self.build_output_payload(
+            result_df=result_df,
+            result_table=result_table,
+            saved_file_path=excel_file_path,
+            saved_file_name='地质参数提取配置文件.xlsx',
+            legacy_saved_name=filename,
+        )
+        self.Outputs.payload.send(output_payload)
+
+        # 清理临时文件
+        if temp_file_path:
+            try:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+            except Exception as e:
+                print("临时文件清理失败:", e)
+
+    def _resolve_saved_file_path(self, filename: str) -> str:
+        if not filename:
+            return ""
+
+        if self.save_radio == 0:
+            output_path = self.default_output_path + self.output_super_folder
+            return os.path.join(output_path, filename)
+
+        if self.save_radio == 1 and self.save_path:
+            return os.path.join(self.save_path, filename)
+
+        return ""
+
+    def build_output_payload(
+        self,
+        *,
+        result_df,
+        result_table,
+        saved_file_path,
+        saved_file_name,
+        legacy_saved_name=""
+    ):
+        if self.input_payload is not None:
+            output_payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            output_payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="process",
+                task="extract",
+                data_kind="table",
+            )
+
+        item = PayloadManager.make_item(
+            file_path=saved_file_path,
+            orange_table=result_table,
+            dataframe=result_df,
+            sheet_name="",
+            role="main",
+            meta={
+                "widget": self.name,
+                "saved_file_name": saved_file_name,
+                "selected_files": list(self.LEFTlist) if self.LEFTlist else [],
+                "selected_logs": list(self.lognames) if self.lognames else [],
+                "wellname_col": self.wellname,
+                "target": self.target,
+                "label": self.labelss,
+                "modetype": self.nameY,
+                "highcutoff": self.highcutoff,
+                "lowcutoff": self.lowcutoff,
+            }
+        )
+
+        output_payload = PayloadManager.replace_items(
+            output_payload,
+            [item],
+            data_kind="table"
+        )
+
+        output_payload = PayloadManager.set_result(
+            output_payload,
+            orange_table=result_table,
+            dataframe=result_df,
+            extra={
+                "saved_file_path": saved_file_path,
+                "saved_file_name": saved_file_name,
+            }
+        )
+
+        output_payload = PayloadManager.update_context(
+            output_payload,
+            source_folder=self.user_inputpath or "",
+            selected_files=list(self.LEFTlist) if self.LEFTlist else [],
+            selected_logs=list(self.lognames) if self.lognames else [],
+            wellname_col=self.wellname,
+            target=self.target,
+            label=self.labelss,
+            modetype=self.nameY,
+            highcutoff=self.highcutoff,
+            lowcutoff=self.lowcutoff,
+        )
+
+        output_payload["legacy"].update({
+            "data_list": [result_df],
+            "file_path": saved_file_path,
+            "file_name": [saved_file_name],
+            "legacy_saved_name": legacy_saved_name,
+        })
+
+        return output_payload
 
     def read(self):
         """读取数据方法"""
@@ -232,35 +594,35 @@ class Widget(OWWidget):
     #################### 读取GUI上的配置 ####################
 
     def fillfile(self):
-        names = self.user_inputname
+        self.tableWidgetLEFT.setRowCount(0)
+        self.LEFTlist = []
 
-        # 循环填充表格
-        for x in range(len(names)):
-            # 如果表格的行数不足，插入新行
+        names = self.payload_file_names if self.payload_file_names else self.user_inputname
+        if not names:
+            return
+
+        for x, name in enumerate(names):
             if x >= self.tableWidgetLEFT.rowCount():
                 self.tableWidgetLEFT.insertRow(x)
 
-            # 创建复选框
             checkbox = QCheckBox()
-            # checkbox.setText(names[x].value)  # 设置复选框显示的文本
-            checkbox.setChecked(False)  # 默认不选中
-            checkbox.stateChanged.connect(lambda state, name=names[x]: self.on_checkbox_changed(state, name))
+            checkbox.setChecked(False)
+            checkbox.stateChanged.connect(
+                lambda state, name=name: self.on_checkbox_changed(state, name)
+            )
 
-            # 将复选框放置在表格的第一列
             self.tableWidgetLEFT.setCellWidget(x, 0, checkbox)
-
-            # 填充表格的第二列
-            self.tableWidgetLEFT.setItem(x, 1, QTableWidgetItem(names[x]))
+            self.tableWidgetLEFT.setItem(x, 1, QTableWidgetItem(str(name)))
 
     def on_checkbox_changed(self, state, name):
         if state == Qt.Checked:
             print(f"Checkbox for {name} is checked")
-            self.LEFTlist.append(name)
-            # 在这里执行其他操作，例如将数据存储到Alldata中
+            if name not in self.LEFTlist:
+                self.LEFTlist.append(name)
         else:
             print(f"Checkbox for {name} is unchecked")
-            self.LEFTlist.remove(name)
-            # 在这里执行其他操作，例如从Alldata中删除数据
+            if name in self.LEFTlist:
+                self.LEFTlist.remove(name)
 
     def fillprpo(self):
         abc = self.data.columns.tolist()
@@ -548,6 +910,10 @@ class Widget(OWWidget):
         self.label_content_mapping = {}
         self.clumN = None
 
+        self.input_payload = None
+        self.payload_file_names = []
+        self.payload_file_paths = []
+
         layout = QGridLayout()
         layout.setSpacing(3)
         layout.setHorizontalSpacing(10)
@@ -694,16 +1060,24 @@ class Widget(OWWidget):
     lowcutoff = 0
 
     def onTextChanged(self, text):
-        # 获取输入框的内容
         sender = self.sender()
+        text = str(text).strip()
+
+        if text == "":
+            return
+
+        try:
+            value = int(text)
+        except ValueError:
+            print("输入的截断值不是整数:", text)
+            return
+
         if sender == self.input1:
-            text = int(text)
-            self.highcutoff = text
-            print('上截断值:', text)
+            self.highcutoff = value
+            print('上截断值:', value)
         elif sender == self.input2:
-            text = int(text)
-            self.lowcutoff = text
-            print('下截断值:', text)
+            self.lowcutoff = value
+            print('下截断值:', value)
 
     def gettext(self, text):
         # 在这里编写获取文本的逻辑

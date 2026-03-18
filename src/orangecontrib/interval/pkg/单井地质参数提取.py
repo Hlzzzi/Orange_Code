@@ -338,8 +338,8 @@ def add_filename_to_df(df_list, filename_list):
 
     return result_df
 # #
-# input_path = r"D:\Orange3-3.33\Orange\config_Cengduan\机械比能参数"
-# lognames = ['泰勒_MSE', '佩西耶_MSE', '杜普里斯特_MSE', '樊洪海_MSE', '谢里夫_MSE']
+# input_path = r"D:\测试数据\统一测试数据\2井斜数据"
+# lognames = ["SINC","SAZC"]
 # a = getgeofeatures(input_path, lognames, wellname='wellname',
 #                wellnames=['GY2-Q2-H1','GY2-Q2-H2','GY2-Q2-H3','GY2-Q2-H4'],
 #                target=None, label=None, highcutoff=100,
