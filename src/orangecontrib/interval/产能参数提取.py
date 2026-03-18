@@ -17,6 +17,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel
 
 from .pkg import 单井产能参数提取 as runmain
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 class Widget(OWWidget):
     # Widget needs a name, or it is considered an abstract widget
@@ -36,6 +38,9 @@ class Widget(OWWidget):
         filepath = Input("文件路径", str, auto_summary=False)
         filename = Input("文件名", list, auto_summary=False)
 
+        # 新增标准 payload 接口
+        payload = Input("payload", dict, auto_summary=False)
+
     user_input = None
     data: pd.DataFrame = None
     data_orange = None
@@ -49,6 +54,74 @@ class Widget(OWWidget):
     propertyDict: dict = None  # 属性字典
     namedata = None
     ALLdata = None
+
+    input_payload = None
+    payload_file_names = None
+    payload_file_paths = None
+
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="process",
+            task="transform",
+            data_kind="table_batch",
+        )
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
+        self._apply_payload_input(self.input_payload)
+
+    def _apply_payload_input(self, payload):
+        dfs = PayloadManager.get_dataframes(payload)
+        tables = PayloadManager.get_tables(payload)
+        self.payload_file_names = PayloadManager.get_file_names(payload)
+        self.payload_file_paths = PayloadManager.get_file_paths(payload)
+
+        primary_df = PayloadManager.get_single_dataframe(payload)
+        primary_table = PayloadManager.get_single_table(payload)
+
+        # 1. 主表回填给老逻辑
+        if primary_df is not None:
+            self.data = primary_df.copy()
+        elif primary_table is not None:
+            df = table_to_frame(primary_table)
+            self.merge_metas(primary_table, df)
+            self.data = df
+        else:
+            self.data = None
+
+        # 2. 多文件/多表回填给原来的 ALLdata
+        if tables:
+            self.ALLdata = tables
+        elif dfs:
+            self.ALLdata = dfs
+        elif self.data is not None:
+            self.ALLdata = [self.data]
+        else:
+            self.ALLdata = []
+
+        # 3. 路径回填
+        primary_folder = PayloadManager.get_primary_folder(payload)
+        if primary_folder:
+            self.user_inputpath = primary_folder
+        elif self.payload_file_paths:
+            # 如果没有 source_folder，就退化到第一条 file_path
+            self.user_inputpath = self.payload_file_paths[0]
+        else:
+            self.user_inputpath = None
+
+        # 4. 文件名回填
+        self.listfile = self.payload_file_names or []
+
+        # 5. 驱动原 GUI 逻辑
+        if self.data is not None:
+            self.read()
+
     @Inputs.data
     def set_data(self, data):
         if data:
@@ -87,6 +160,9 @@ class Widget(OWWidget):
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
         file_name = Output("文件名", list, auto_summary=False)
         file_path = Output("文件路径", str, auto_summary=False)
+
+        # 新增标准 payload 输出
+        payload = Output("payload", dict, auto_summary=False)
 
 
     @gui.deferred
@@ -135,6 +211,8 @@ class Widget(OWWidget):
     TextType = ['object', 'category']
     NumType = ['int64', 'float64']
 
+
+
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
     def ignore_function(self,text,prop):
         # 执行 '忽略' 选项后的处理逻辑
@@ -147,17 +225,14 @@ class Widget(OWWidget):
             self.data = self.data.drop(columns=columns)
 
     def run(self):
-        # """【核心入口方法】发送按钮回调"""
         if self.data is None:
             self.warning('请先输入数据')
             return
 
+        if not self.user_inputpath:
+            self.error('缺少文件路径，无法执行产能参数提取')
+            return
 
-
-        ##self.paranames 是paranames  用于存储选中的参数名 self.days 是days 用于存储选中的天数 self.bot 是bot 用于存储小数点位
-        ##wellname 是 self.wellname       LEFTlist 是选择的井名列表     name是 self.nameY
-        ##wellnames 是指定井名
-        ##self.user_inputpath  是文件路径
         print('paranames是:::', self.paranames)
         print('days是:::', self.days)
         print('bot是:::', self.bot)
@@ -165,45 +240,232 @@ class Widget(OWWidget):
         print('LEFTlist是:::', self.LEFTlist)
         print('name是:::', self.nameY)
         print('文件路径是:::', self.user_inputpath)
+
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_production_task,
+            self._on_run_finished,
+            wellnames=self.LEFTlist if self.LEFTlist else None,
+            input_path=self.user_inputpath,
+            paranames=self.paranames,
+            days=self.days,
+            dot=self.bot,
+            name=self.nameY,
+            wellname=self.wellname,
+        )
+
+        if not started:
+            self.warning("当前已有任务在运行，请稍后再试")
+
+    def _deduplicate_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        把重复列名改成唯一列名：
+        例如 ['A', 'B', 'A'] -> ['A', 'B', 'A_2']
+        """
+        if df is None:
+            return None
+
+        out = df.copy()
+        cols = list(out.columns)
+        counts = {}
+        new_cols = []
+
+        for col in cols:
+            col_str = str(col)
+            counts[col_str] = counts.get(col_str, 0) + 1
+            if counts[col_str] == 1:
+                new_cols.append(col_str)
+            else:
+                new_cols.append(f"{col_str}_{counts[col_str]}")
+
+        out.columns = new_cols
+        return out
+
+    def _sanitize_df_for_orange(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        把 DataFrame 清洗成适合 table_from_frame 的格式：
+        - list / tuple / ndarray / Series / dict -> 字符串
+        - 其余保持原值
+        - 按列位置处理，避免重复列名时 out[col] 变成 DataFrame
+        """
+        if df is None:
+            return None
+
+        out = df.copy()
+
+        def _safe_cell(v):
+            if isinstance(v, (list, tuple, np.ndarray, pd.Series, dict)):
+                try:
+                    return str(v)
+                except Exception:
+                    return repr(v)
+            return v
+
+        for i in range(out.shape[1]):
+            series = out.iloc[:, i]
+            out.iloc[:, i] = series.apply(_safe_cell)
+
+        return out
+    def _run_production_task(
+        self,
+        *,
+        wellnames,
+        input_path,
+        paranames,
+        days,
+        dot,
+        name,
+        wellname,
+        setProgress=None,
+        isCancelled=None
+    ):
+        if setProgress:
+            setProgress(5)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True, "result_df": None}
+
+        result_df = runmain.day_production_data_get_parmeters(
+            input_path=input_path,
+            wellnames=wellnames,
+            name=name,
+            wellname=wellname,
+            days=days,
+            paranames=paranames,
+            dot=dot
+        )
+
+        if setProgress:
+            setProgress(90)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True, "result_df": None}
+
+        return {
+            "cancelled": False,
+            "result_df": result_df
+        }
+
+    def _on_run_finished(self, future):
         try:
-        # 执行
-            result = runmain.day_production_data_get_parmeters(
-            wellnames=self.LEFTlist,input_path=self.user_inputpath,paranames=self.paranames,days=self.days,dot=self.bot,name=self.nameY,
-            wellname=self.wellname
-                                    )
+            task_result = future.result()
         except Exception as e:
             print(e)
             self.error('请填写完必要参数，再次点击运行')
             return
 
-        result.to_excel(r".\DJCN1999.xlsx", index=False)
-        result_df = pd.read_excel(r".\DJCN1999.xlsx")
+        if not task_result or task_result.get("cancelled"):
+            self.warning("任务已取消")
+            return
 
+        result_df = task_result.get("result_df")
+        if result_df is None:
+            self.error("未生成结果数据")
+            return
 
-        # 创建一个文件夹来保存 Excel 文件
+        result_df_raw = result_df.copy()
+
+        # 先处理重复列名
+        result_df_raw = self._deduplicate_columns(result_df_raw)
+
+        # 再做 Orange 安全清洗
+        result_df_orange = self._sanitize_df_for_orange(result_df_raw)
+
         folder_path = './config_Cengduan/产能参数提取'
-        os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-        # 保存到文件夹中的 Excel 文件
+        os.makedirs(folder_path, exist_ok=True)
         excel_file_path = os.path.join(folder_path, '产能参数提取配置文件.xlsx')
 
-        # # print('aaaaaa',self.listfile)
-        # # print('result',result)
-        # # print(type(result))
-        # result_df = result
-        # # 保存
-        filename = self.save(result_df)
+        # 建议保存清洗后的版本，避免后面 Excel 里也出现奇怪对象
+        result_df_orange.to_excel(excel_file_path, index=False)
 
-        result_df.to_excel(excel_file_path, index=False)
-        #
-        # #
-        # #
-        # # # 发送
-        self.Outputs.table.send(table_from_frame(result_df))
-        self.Outputs.data.send([result_df])
+        filename = self.save(result_df_orange)
+
+        result_table = table_from_frame(result_df_orange)
+
+        # 老输出保留
+        self.Outputs.table.send(result_table)
+        self.Outputs.data.send([result_df_orange])
         self.Outputs.file_path.send(excel_file_path)
         self.Outputs.file_name.send(['产能参数提取配置文件.xlsx'])
 
+        # 新标准 payload 输出
+        output_payload = self.build_output_payload(
+            result_df=result_df_orange,
+            result_table=result_table,
+            saved_file_path=excel_file_path,
+            saved_file_name='产能参数提取配置文件.xlsx',
+            legacy_saved_name=filename,
+        )
+        self.Outputs.payload.send(output_payload)
+
+    def build_output_payload(
+        self,
+        *,
+        result_df,
+        result_table,
+        saved_file_path,
+        saved_file_name,
+        legacy_saved_name=""
+    ):
+        if self.input_payload is not None:
+            output_payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            output_payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="process",
+                task="transform",
+                data_kind="table_batch",
+            )
+
+        item = PayloadManager.make_item(
+            file_path=saved_file_path,
+            orange_table=result_table,
+            dataframe=result_df,
+            sheet_name="",
+            role="main",
+            meta={
+                "widget": self.name,
+                "saved_file_name": saved_file_name,
+                "selected_wells": list(self.LEFTlist) if self.LEFTlist else [],
+                "selected_params": list(self.paranames) if self.paranames else [],
+            }
+        )
+
+        output_payload = PayloadManager.replace_items(
+            output_payload,
+            [item],
+            data_kind="table_batch"
+        )
+
+        output_payload = PayloadManager.set_result(
+            output_payload,
+            orange_table=result_table,
+            dataframe=result_df,
+            extra={
+                "saved_file_path": saved_file_path,
+                "saved_file_name": saved_file_name,
+            }
+        )
+
+        output_payload = PayloadManager.update_context(
+            output_payload,
+            source_folder=self.user_inputpath or "",
+            selected_wells=list(self.LEFTlist) if self.LEFTlist else [],
+            selected_params=list(self.paranames) if self.paranames else [],
+            days=list(self.days) if self.days else [],
+            dot=self.bot,
+            production_col=self.nameY,
+            wellname_col=self.wellname,
+        )
+
+        output_payload["legacy"].update({
+            "data_list": [result_df],
+            "file_path": saved_file_path,
+            "file_name": [saved_file_name],
+            "legacy_saved_name": legacy_saved_name,
+        })
+
+        return output_payload
 
     def read(self):
         """读取数据方法"""
@@ -226,34 +488,46 @@ class Widget(OWWidget):
     #################### 读取GUI上的配置 ####################
 
     def fillfile(self):
+        self.tableWidgetLEFT.setRowCount(0)
         names = []
 
-        for dataset in self.ALLdata:
-            # 获取每个数据集中的第一个数据点的标识符（假设第一个数据点的标识符就是名字）
-            name = dataset[0][0]
-            names.append(name)
+        # 优先使用 payload 自带的 file_name
+        if self.payload_file_names:
+            names = [os.path.splitext(x)[0] if x else "" for x in self.payload_file_names]
 
-        print(names)
-        print(names[0].value)
-        print(type(names[0].value))
+        # 没有 payload 文件名时，再走旧逻辑
+        elif self.ALLdata:
+            for dataset in self.ALLdata:
+                name = ""
 
-        # 循环填充表格
-        for x in range(len(names)):
-            # 如果表格的行数不足，插入新行
+                if isinstance(dataset, Table):
+                    try:
+                        cell = dataset[0][0]
+                        name = cell.value if hasattr(cell, "value") else str(cell)
+                    except Exception:
+                        name = getattr(dataset, "name", "") or ""
+                elif isinstance(dataset, pd.DataFrame):
+                    name = getattr(dataset, "name", "") or ""
+                else:
+                    name = str(dataset)
+
+                names.append(name)
+
+        # 去掉空值
+        names = [str(x) for x in names if str(x).strip()]
+
+        # 填表
+        for x, name in enumerate(names):
             if x >= self.tableWidgetLEFT.rowCount():
                 self.tableWidgetLEFT.insertRow(x)
 
-            # 创建复选框
             checkbox = QCheckBox()
-            # checkbox.setText(names[x].value)  # 设置复选框显示的文本
-            checkbox.setChecked(False)  # 默认不选中
-            checkbox.stateChanged.connect(lambda state, name=names[x].value: self.on_checkbox_changed(state, name))
-
-            # 将复选框放置在表格的第一列
+            checkbox.setChecked(False)
+            checkbox.stateChanged.connect(
+                lambda state, name=name: self.on_checkbox_changed(state, name)
+            )
             self.tableWidgetLEFT.setCellWidget(x, 0, checkbox)
-
-            # 填充表格的第二列
-            self.tableWidgetLEFT.setItem(x, 1, QTableWidgetItem(names[x].value))
+            self.tableWidgetLEFT.setItem(x, 1, QTableWidgetItem(name))
 
     def on_checkbox_changed(self, state, name):
         if state == Qt.Checked:
@@ -562,11 +836,15 @@ class Widget(OWWidget):
 
     def __init__(self):
         super().__init__()
-        pd.set_option('mode.chained_assignment', None)  # TODO: 关闭代码中所有SettingWithCopyWarning
+        pd.set_option('mode.chained_assignment', None)
         self.ddf = pd.DataFrame()
-        self.sort_order_ascending = False  # 用于跟踪排序顺序的变量
+        self.sort_order_ascending = False
         self.label_content_mapping = {}
         self.clumN = None
+
+        self.input_payload = None
+        self.payload_file_names = []
+        self.payload_file_paths = []
 
         layout = QGridLayout()
         layout.setSpacing(3)
@@ -740,10 +1018,15 @@ class Widget(OWWidget):
             except ValueError:
                 print("N天: Invalid input")
         elif sender == self.input2:
-            text = int(text)
-            self.bot = text
-            print("小数点位:", self.bot)
-            print(type(self.bot))
+            text = text.strip()
+            if text == "":
+                return
+            try:
+                self.bot = int(text)
+                print("小数点位:", self.bot)
+                print(type(self.bot))
+            except ValueError:
+                print("小数点位: Invalid input")
 
     def remove_filter(self, filter_layout):
         for i in reversed(range(filter_layout.count())):

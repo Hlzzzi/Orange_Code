@@ -665,9 +665,10 @@ def add_filename_to_df(df_list, filename_list):
 
     return result_df
 # a = ['GY1-Q1-H1', 'GY1-Q1-H2', 'GY1-Q1-H3', 'GY1-Q1-H4', 'GY1-Q2-H1', 'GY1-Q2-H2', 'GY1-Q2-H3', 'GY1-Q2-H4', 'GY1-Q3-H1', 'GY1-Q3-H2', 'GY1-Q3-H3', 'GY1-Q3-H4']
-# input_path2=r"D:\微信下载\WeChat Files\wxid_68hl91pn8bse22\FileStorage\File\2024-04\产量数据"
+# input_path2=r"D:\测试数据\油气当量计算\油气当量计算"
 # result=day_production_data_get_parmeters(input_path2,wellnames=a,name='日产油（吨）',wellname='井名',days=[30,60,90,100,180,300],paranames=['日产油量','平均日产油量','平均日产油量','累产油量','目前最高产油量','目前日产油量','目前平均日产油量','目前累积日产油量','生产天数'],dot=3)
-# ac = result.drop_duplicates()
+# ac = result
+# print(ac)
 # ac.to_excel(r".\DJCN1999.xlsx",index=False)
 # pdf = pd.read_excel(r".\DJCN1999.xlsx")
 #
