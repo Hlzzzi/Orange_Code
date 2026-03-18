@@ -12,6 +12,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel, QButtonGroup, QRadioButton, QAbstractItemView
 
 from .pkg import MyWidget
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 # noinspection PyPackageRequirements
@@ -31,6 +33,9 @@ class Widget(OWWidget):
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
         data = Input("数据", list, auto_summary=False)
         data_name = Input("文件名", list, auto_summary=False)
+
+        # 新增标准 payload 输入
+        payload = Input("payload", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -79,39 +84,96 @@ class Widget(OWWidget):
 
 
 
+    def _coerce_to_df_list(self, data_list):
+        result = []
+        if not data_list:
+            return result
+
+        for obj in data_list:
+            if isinstance(obj, Table):
+                df = table_to_frame(obj)
+                self.merge_metas(obj, df)
+                result.append(df)
+            elif isinstance(obj, pd.DataFrame):
+                result.append(obj.copy())
+        return result
+
     @Inputs.data
     def set_data(self, data):
-        self.numm = len(data)
+        self.numm = len(data) if data else 0
+
         if data:
-            # for x in range(self.numm):
-                if isinstance(data[0], Table):
-                    df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                    self.merge_metas(data[0], df)  # 防止meta数据丢失
-                    self.data: pd.DataFrame = df
-                    # self.data_dict[x] = self.data
-
-
-                elif isinstance(data[0], pd.DataFrame):
-                    self.data: pd.DataFrame = data[0]
-                    # self.data_dict[x] = self.data
-                self.read()
+            self.ALLdata = self._coerce_to_df_list(data)
+            self.data = self.ALLdata[0] if self.ALLdata else None
+            self.read()
         else:
+            self.ALLdata = []
             self.data = None
-        # print(self.data_dict[0])
-        # print(self.data_dict[1])
 
     @Inputs.data_name
     def CL_name(self, data_name):
         if data_name:
-            self.data_WJM_name = data_name
+            self.data_WJM_name = list(data_name)
         else:
-            print("文件名为空")
+            self.data_WJM_name = []
+
+        if self.data is not None:
+            self.fillTopTable(self.data_WJM_name)
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="process",
+            task="extract",
+            data_kind="table_batch",
+        )
+
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
+        self._apply_payload_input(self.input_payload)
+
+    def _apply_payload_input(self, payload):
+        dfs = PayloadManager.get_dataframes(payload)
+        tables = PayloadManager.get_tables(payload)
+        self.payload_file_names = PayloadManager.get_file_names(payload)
+        self.payload_file_paths = PayloadManager.get_file_paths(payload)
+
+        if dfs:
+            self.ALLdata = [df.copy() for df in dfs]
+        elif tables:
+            self.ALLdata = []
+            for table in tables:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+                self.ALLdata.append(df)
+        else:
+            self.ALLdata = []
+
+        self.data = self.ALLdata[0] if self.ALLdata else None
+
+        if self.payload_file_names:
+            self.data_WJM_name = list(self.payload_file_names)
+        else:
+            self.data_WJM_name = [f"item_{i + 1}" for i in range(len(self.ALLdata))]
+
+        self.numm = len(self.ALLdata)
+
+        if self.data is not None:
+            self.read()
 
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
         table = Output("数据(Data)", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
         raw = Output("数据Dict", dict, auto_summary=False)
+
+        # 新增标准 payload 输出
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -142,6 +204,11 @@ class Widget(OWWidget):
 
     default_output_path = "D:\\"  # 默认保存路径
     output_super_folder = name  # 保存父文件夹名
+
+    input_payload = None
+    payload_file_names = None
+    payload_file_paths = None
+    ALLdata = None
 
     @property
     def output_file_name(self) -> str:
@@ -175,58 +242,426 @@ class Widget(OWWidget):
         elif text == '深度索引':
             self.depth_index = prop
             print("现在的(唯一)深度索引是：", self.depth_index)
+    #
+    # def run(self):
+    #     ####
+    #     """【核心入口方法】发送按钮回调"""
+    #     if self.data is None:
+    #         self.warning('请先输入数据')
+    #         return
+    #
+    #     # lognames = ['Zuansu', 'DGFH', 'ZY', 'Zhuansu', 'LGYL', 'NJ', 'teale_MSE1']   ##  作用类型为特征的列表，就是lognames
+    #
+    #     # self.list_bool_1 = []
+    #     # self.list_bool_2 = []
+    #     # self.list_bool_3 = []
+    #
+    #
+    #     try:
+    #         self.bestzonechoice( self.data_WJM_name, self.lognames, self.y_name, depth_index=self.depth_index, loglists=self.loglists,
+    #                Discrete_lists=self.Discrete_lists, skip=self.skip, topname=self.topname, botname=self.botname, modetype=self.modetype,
+    #                 ascending_type=self.ascending_type, decision_cruve=self.decision_cruve)
+    #     except Exception as e:
+    #         self.warning("请检查(目标，指数数值)属性设置",str(e))
+    #         print("请检查属性设置",str(e))
+    #         return
+    #     # lb1 = pd.concat(self.list_bool_1, axis=0, ignore_index=True)
+    #     # lb2 = pd.concat(self.list_bool_2, axis=0, ignore_index=True)
+    #     # lb3 = pd.concat(self.list_bool_3, axis=0, ignore_index=True)
+    #
+    #     for wellname9 in self.data_WJM_name:
+    #         # 保存
+    #         if self.bool_run == 1:
+    #             filename = self.save(self.lb1,XZ='顶底数据提取',WJM=wellname9)
+    #
+    #             # 发送
+    #             self.Outputs.table.send(table_from_frame(self.lb1))
+    #             self.Outputs.data.send([self.lb1])
+    #             self.Outputs.raw.send({'maindata': self.lb1, 'target': [], 'future': [], 'filename': filename})
+    #
+    #         elif self.bool_run == 2:
+    #             filename = self.save(self.lb2,XZ='顶底数据特征提取',WJM=wellname9)
+    #
+    #             # 发送
+    #             self.Outputs.table.send(table_from_frame(self.lb2))
+    #             self.Outputs.data.send([self.lb2])
+    #             self.Outputs.raw.send({'maindata': self.lb2, 'target': [], 'future': [], 'filename': filename})
+    #
+    #         elif self.bool_run == 3:
+    #             filename = self.save(self.lb3,XZ='顶底数据特征排序',WJM=wellname9)
+    #
+    #             # 发送
+    #             self.Outputs.table.send(table_from_frame(self.lb3))
+    #             self.Outputs.data.send([self.lb3])
+    #             self.Outputs.raw.send({'maindata': self.lb3, 'target': [], 'future': [], 'filename': filename})
 
     def run(self):
-        ####
         """【核心入口方法】发送按钮回调"""
-        if self.data is None:
+        if self.ALLdata is None or len(self.ALLdata) == 0:
             self.warning('请先输入数据')
             return
 
-        # lognames = ['Zuansu', 'DGFH', 'ZY', 'Zhuansu', 'LGYL', 'NJ', 'teale_MSE1']   ##  作用类型为特征的列表，就是lognames
-
-        # self.list_bool_1 = []
-        # self.list_bool_2 = []
-        # self.list_bool_3 = []
-
-
-        try:
-            self.bestzonechoice( self.data_WJM_name, self.lognames, self.y_name, depth_index=self.depth_index, loglists=self.loglists,
-                   Discrete_lists=self.Discrete_lists, skip=self.skip, topname=self.topname, botname=self.botname, modetype=self.modetype,
-                    ascending_type=self.ascending_type, decision_cruve=self.decision_cruve)
-        except Exception as e:
-            self.warning("请检查(目标，指数数值)属性设置",str(e))
-            print("请检查属性设置",str(e))
+        if not self.data_WJM_name:
+            self.warning('缺少文件名/井名列表')
             return
-        # lb1 = pd.concat(self.list_bool_1, axis=0, ignore_index=True)
-        # lb2 = pd.concat(self.list_bool_2, axis=0, ignore_index=True)
-        # lb3 = pd.concat(self.list_bool_3, axis=0, ignore_index=True)
 
-        for wellname9 in self.data_WJM_name:
-            # 保存
-            if self.bool_run == 1:
-                filename = self.save(self.lb1,XZ='顶底数据提取',WJM=wellname9)
+        if self.bool_run not in [1, 2, 3]:
+            self.warning('请先选择输出模式')
+            return
 
-                # 发送
-                self.Outputs.table.send(table_from_frame(self.lb1))
-                self.Outputs.data.send([self.lb1])
-                self.Outputs.raw.send({'maindata': self.lb1, 'target': [], 'future': [], 'filename': filename})
+        if not self.y_name:
+            self.warning('请先设置目标列')
+            return
 
-            elif self.bool_run == 2:
-                filename = self.save(self.lb2,XZ='顶底数据特征提取',WJM=wellname9)
+        if not self.depth_index:
+            self.warning('请先设置深度索引列')
+            return
 
-                # 发送
-                self.Outputs.table.send(table_from_frame(self.lb2))
-                self.Outputs.data.send([self.lb2])
-                self.Outputs.raw.send({'maindata': self.lb2, 'target': [], 'future': [], 'filename': filename})
+        selected_names = list(self.checked_wellname) if self.checked_wellname else list(self.data_WJM_name)
+        if not selected_names:
+            self.warning('请至少选择一个井名/文件名')
+            return
 
-            elif self.bool_run == 3:
-                filename = self.save(self.lb3,XZ='顶底数据特征排序',WJM=wellname9)
+        if self.bool_run == 3 and not self.decision_cruve:
+            self.warning('请先选择排序特征属性')
+            return
 
-                # 发送
-                self.Outputs.table.send(table_from_frame(self.lb3))
-                self.Outputs.data.send([self.lb3])
-                self.Outputs.raw.send({'maindata': self.lb3, 'target': [], 'future': [], 'filename': filename})
+        print("当前选中对象：", selected_names)
+        print("当前输出模式：", self.bool_run)
+        print("当前目标列：", self.y_name)
+        print("当前深度索引：", self.depth_index)
+        print("当前特征列：", self.lognames)
+
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_depth_task,
+            self._on_run_finished,
+            all_data=[df.copy() for df in self.ALLdata],
+            data_names=list(self.data_WJM_name),
+            selected_names=selected_names,
+            lognames=list(self.lognames) if self.lognames else [],
+            y_name=self.y_name,
+            depth_index=self.depth_index,
+            loglists=list(self.loglists) if self.loglists else [],
+            discrete_lists=list(self.Discrete_lists) if self.Discrete_lists else [],
+            skip=self.skip,
+            topname=self.topname,
+            botname=self.botname,
+            modetype=self.modetype,
+            ascending_type=self.ascending_type,
+            decision_cruve=self.decision_cruve,
+            bool_run=self.bool_run,
+        )
+
+        if not started:
+            self.warning("当前已有任务在运行，请稍后再试")
+
+
+    def _run_depth_task(
+        self,
+        *,
+        all_data,
+        data_names,
+        selected_names,
+        lognames,
+        y_name,
+        depth_index,
+        loglists,
+        discrete_lists,
+        skip,
+        topname,
+        botname,
+        modetype,
+        ascending_type,
+        decision_cruve,
+        bool_run,
+        setProgress=None,
+        isCancelled=None
+    ):
+        per_well_results = []
+
+        # 文件名 -> 数据表 映射
+        name_df_pairs = []
+        for i, df in enumerate(all_data):
+            raw_name = data_names[i] if i < len(data_names) else f"item_{i + 1}"
+            display_name = os.path.splitext(str(raw_name))[0]
+            name_df_pairs.append((str(raw_name), display_name, df.copy()))
+
+        # 只处理当前勾选的
+        selected_set = set(str(x) for x in selected_names)
+        task_pairs = [x for x in name_df_pairs if x[0] in selected_set]
+
+        if not task_pairs:
+            return {
+                "cancelled": False,
+                "combined_df": pd.DataFrame(),
+                "per_well_results": [],
+                "mode_label": ""
+            }
+
+        if setProgress:
+            setProgress(5)
+
+        mode_label = self._mode_label(bool_run)
+
+        for idx, (raw_name, display_name, df) in enumerate(task_pairs):
+            if isCancelled and isCancelled():
+                return {
+                    "cancelled": True,
+                    "combined_df": None,
+                    "per_well_results": [],
+                    "mode_label": mode_label
+                }
+
+            # 模式 1：顶底数据提取
+            if bool_run == 1:
+                result_df = self.get_top_bot(
+                    display_name, df, lognames, y_name,
+                    depth_index=depth_index, skip=skip
+                )
+
+            # 模式 2：顶底数据特征提取
+            elif bool_run == 2:
+                sectiondata_top_bot = self.get_top_bot(
+                    display_name, df, lognames, y_name,
+                    depth_index=depth_index, skip=skip
+                )
+                result_df = self.get_zone_sheets(
+                    display_name, df, sectiondata_top_bot,
+                    lognames, y_name,
+                    depth_index=depth_index,
+                    loglists=loglists,
+                    Discrete_lists=discrete_lists,
+                    skip=skip,
+                    topname=topname,
+                    botname=botname,
+                    modetype=modetype
+                )
+
+            # 模式 3：顶底数据特征排序
+            else:
+                sectiondata_top_bot = self.get_top_bot(
+                    display_name, df, lognames, y_name,
+                    depth_index=depth_index, skip=skip
+                )
+                result_df = self.get_zone_sheets(
+                    display_name, df, sectiondata_top_bot,
+                    lognames, y_name,
+                    depth_index=depth_index,
+                    loglists=loglists,
+                    Discrete_lists=discrete_lists,
+                    skip=skip,
+                    topname=topname,
+                    botname=botname,
+                    modetype=modetype
+                )
+
+                if decision_cruve and decision_cruve in result_df.columns:
+                    result_df = result_df.sort_values(
+                        by=decision_cruve,
+                        ascending=(ascending_type == '升序'),
+                        ignore_index=True
+                    )
+
+            per_well_results.append({
+                "raw_name": raw_name,
+                "display_name": display_name,
+                "dataframe": result_df
+            })
+
+            if setProgress:
+                progress = 5 + int((idx + 1) / max(len(task_pairs), 1) * 90)
+                setProgress(progress)
+
+        combined_df = pd.concat(
+            [x["dataframe"] for x in per_well_results],
+            axis=0,
+            ignore_index=True
+        ) if per_well_results else pd.DataFrame()
+
+        return {
+            "cancelled": False,
+            "combined_df": combined_df,
+            "per_well_results": per_well_results,
+            "mode_label": mode_label
+        }
+
+    def _mode_label(self, bool_run):
+        if bool_run == 1:
+            return "顶底数据提取"
+        elif bool_run == 2:
+            return "顶底数据特征提取"
+        elif bool_run == 3:
+            return "顶底数据特征排序"
+        return "顶底深度数据计算"
+
+    def _resolve_saved_file_path(self, filename: str, XZ: str, WJM: str) -> str:
+        if not filename:
+            return ""
+
+        outputPath = self.default_output_path + f"{XZ}" + f"_{WJM}.xlsx"
+        if self.save_radio == 0:
+            return os.path.join(outputPath, filename)
+        elif self.save_radio == 1 and self.save_path:
+            return os.path.join(self.save_path, filename)
+        return ""
+
+    def _on_run_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            print("请检查属性设置", str(e))
+            self.warning("请检查(目标，指数数值)属性设置", str(e))
+            return
+
+        if not task_result or task_result.get("cancelled"):
+            self.warning("任务已取消")
+            return
+
+        combined_df = task_result.get("combined_df")
+        per_well_results = task_result.get("per_well_results", [])
+        mode_label = task_result.get("mode_label", "顶底深度数据计算")
+
+        if combined_df is None or combined_df.empty:
+            self.error("未生成结果数据")
+            return
+
+        # 合并结果保存一次
+        combined_filename = self.save(combined_df, XZ=mode_label, WJM="合并结果")
+        combined_file_path = self._resolve_saved_file_path(combined_filename, mode_label, "合并结果")
+        combined_table = table_from_frame(combined_df)
+
+        # 老输出保留
+        self.Outputs.table.send(combined_table)
+        self.Outputs.data.send([combined_df])
+        self.Outputs.raw.send({
+            'maindata': combined_df,
+            'target': [],
+            'future': [],
+            'filename': combined_filename
+        })
+
+        # 新标准 payload 输出
+        output_payload = self.build_output_payload(
+            combined_df=combined_df,
+            combined_table=combined_table,
+            combined_filename=combined_filename,
+            combined_file_path=combined_file_path,
+            per_well_results=per_well_results,
+            mode_label=mode_label
+        )
+        self.Outputs.payload.send(output_payload)
+
+
+    def build_output_payload(
+        self,
+        *,
+        combined_df,
+        combined_table,
+        combined_filename,
+        combined_file_path,
+        per_well_results,
+        mode_label
+    ):
+        if self.input_payload is not None:
+            output_payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            output_payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="process",
+                task="extract",
+                data_kind="table_batch"
+            )
+
+        items = []
+
+        # 主结果 item
+        main_item = PayloadManager.make_item(
+            file_path=combined_file_path,
+            orange_table=combined_table,
+            dataframe=combined_df,
+            sheet_name="",
+            role="main",
+            meta={
+                "widget": self.name,
+                "mode": mode_label,
+                "selected_names": list(self.checked_wellname) if self.checked_wellname else list(self.data_WJM_name),
+                "y_name": self.y_name,
+                "depth_index": self.depth_index,
+                "skip": self.skip,
+                "topname": self.topname,
+                "botname": self.botname,
+                "modetype": self.modetype,
+                "ascending_type": self.ascending_type,
+                "decision_cruve": self.decision_cruve,
+            }
+        )
+        items.append(main_item)
+
+        # 每井一个 item
+        for result in per_well_results:
+            df = result["dataframe"]
+            table = table_from_frame(df)
+            item = PayloadManager.make_item(
+                file_path="",
+                orange_table=table,
+                dataframe=df,
+                sheet_name="",
+                role="well_result",
+                meta={
+                    "widget": self.name,
+                    "mode": mode_label,
+                    "raw_name": result["raw_name"],
+                    "display_name": result["display_name"],
+                }
+            )
+            items.append(item)
+
+        output_payload = PayloadManager.replace_items(
+            output_payload,
+            items,
+            data_kind="table_batch"
+        )
+
+        output_payload = PayloadManager.set_result(
+            output_payload,
+            orange_table=combined_table,
+            dataframe=combined_df,
+            extra={
+                "combined_filename": combined_filename,
+                "combined_file_path": combined_file_path,
+                "mode": mode_label
+            }
+        )
+
+        output_payload = PayloadManager.update_context(
+            output_payload,
+            selected_names=list(self.checked_wellname) if self.checked_wellname else list(self.data_WJM_name),
+            y_name=self.y_name,
+            depth_index=self.depth_index,
+            lognames=list(self.lognames) if self.lognames else [],
+            loglists=list(self.loglists) if self.loglists else [],
+            discrete_lists=list(self.Discrete_lists) if self.Discrete_lists else [],
+            skip=self.skip,
+            topname=self.topname,
+            botname=self.botname,
+            modetype=self.modetype,
+            ascending_type=self.ascending_type,
+            decision_cruve=self.decision_cruve,
+            mode=mode_label
+        )
+
+        output_payload["legacy"].update({
+            "data_list": [combined_df],
+            "data_dict": {
+                'maindata': combined_df,
+                'target': [],
+                'future': [],
+                'filename': combined_filename
+            }
+        })
+
+        return output_payload
 
     def read(self):
         """读取数据方法"""
@@ -236,18 +671,26 @@ class Widget(OWWidget):
         self.selectedWellName = []
         self.propertyDict = {}
 
+        # 每次重新读取都重置，避免重复 append
+        self.lognames = []
+        self.loglists = []
+        self.Discrete_lists = []
+        self.y_name = None
+        self.depth_index = None
+
         # 填充属性表格
         self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
 
         self.fillTopTable(self.data_WJM_name)
 
-        # 寻找井名索引
+        # 自动寻找井名索引
         self.currentWellNameCol_YLD = None
         YLDCols: list = self.data.columns.tolist()
         for col in YLDCols:
-            if col.lower() in self.wellname_col_alias:
+            if str(col).lower() in self.wellname_col_alias:
                 self.currentWellNameCol_YLD = col
                 break
+
         self.currentWellNameCol_WDZ = None
 
     #################### 读取GUI上的配置 ####################
@@ -368,30 +811,39 @@ class Widget(OWWidget):
             if self.propertyDict[tableName][prop]['type'] == typeList[2]:  # 文本类型
                 self.ddf[prop] = data[prop]
 
-    def choose_Text(self,text, prop):
+            # ===== 关键修复：自动识别后立即同步到运行参数 =====
+            self._sync_runtime_param_from_auto_detect(
+                prop=prop,
+                value_type=self.propertyDict[tableName][prop]['type'],
+                func_type=self.propertyDict[tableName][prop]['funcType']
+            )
+
+    def choose_Text(self, text, prop):
         if text == '文本':
             print("文本选项被选择，执行相应的函数", prop)
-            self.Discrete_lists.append(prop)
-            print("现在Discrete_lists内有：",self.Discrete_lists)
+            if prop not in self.Discrete_lists:
+                self.Discrete_lists.append(prop)
+            print("现在Discrete_lists内有：", self.Discrete_lists)
 
-    def choose_Zhishu(self,text, prop):
+    def choose_Zhishu(self, text, prop):
         if text == '指数数值':
             print("指数数值选项被选择，执行相应的函数", prop)
-            self.loglists.append(prop)
+            if prop not in self.loglists:
+                self.loglists.append(prop)
             print("现在loglists内有：", self.loglists)
 
-
-    def choose_Mubiao(self,text, prop):
+    def choose_Mubiao(self, text, prop):
         if text == '目标':
             print("目标选项被选择，执行相应的函数", prop)
             self.y_name = prop
-            print("现在的(唯一)y_name是：",self.y_name)
+            print("现在的(唯一)y_name是：", self.y_name)
 
-    def choose_TZ(self,text, prop):
+    def choose_TZ(self, text, prop):
         if text == '特征':
             print("特征选项被选择，执行相应的函数", prop)
-            self.lognames.append(prop)
-            print("选择后的lognames内有 ：",self.lognames)
+            if prop not in self.lognames:
+                self.lognames.append(prop)
+            print("选择后的lognames内有 ：", self.lognames)
 
     def tryFillNameTable(self) -> bool:
         if self.data is None:
@@ -558,6 +1010,29 @@ class Widget(OWWidget):
         self.sort_order_ascending = False  # 用于跟踪排序顺序的变量
         self.label_content_mapping = {}
         self.clumN = None
+
+        self.input_payload = None
+        self.payload_file_names = []
+        self.payload_file_paths = []
+        self.ALLdata = []
+
+        self.selectedWellName = []
+        self.propertyDict = {}
+        self.namedata = None
+        self.extracted_data = []
+        self.data_WJM_name = []
+
+        self.list_bool_1 = []
+        self.list_bool_2 = []
+        self.list_bool_3 = []
+
+        self.lognames = []
+        self.loglists = []
+        self.Discrete_lists = []
+        self.data_dict = {}
+
+        self.checked = []
+        self.checked_wellname = []
 
         layout = QGridLayout()
         layout.setSpacing(3)
@@ -1031,6 +1506,32 @@ class Widget(OWWidget):
                 sectiondata[colname] = sectiondata[colname] / 10000
         # sectiondata.to_excel(savepath+wellname+'.xlsx',index=False)
         return sectiondata
+
+    def _sync_runtime_param_from_auto_detect(self, prop, value_type, func_type):
+        """
+        把 fillPropTable 自动识别出的结果，立即同步到运行参数变量
+        避免界面显示已选中，但 self.y_name / self.depth_index / self.lognames 等未更新
+        """
+
+        # -------- 数据类型同步 --------
+        if value_type == '文本':
+            if prop not in self.Discrete_lists:
+                self.Discrete_lists.append(prop)
+
+        elif value_type == '指数数值':
+            if prop not in self.loglists:
+                self.loglists.append(prop)
+
+        # -------- 作用类型同步 --------
+        if func_type == '深度索引':
+            self.depth_index = prop
+
+        elif func_type == '目标':
+            self.y_name = prop
+
+        elif func_type == '特征':
+            if prop not in self.lognames:
+                self.lognames.append(prop)
 
     def bestzonechoice(self, wellnames, lognames, y_name, depth_index, loglists,
                        Discrete_lists, skip,
