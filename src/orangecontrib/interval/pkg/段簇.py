@@ -116,39 +116,66 @@ def datasave(result, out_path, filename, savemode='.xlsx'):
 def data_read(input_path):
     import os
     import pandas as pd
+
     path, filename0 = os.path.split(input_path)
     filename, filetype = os.path.splitext(filename0)
-    # print(filename)
+
     if filetype in ['.xls', '.xlsx']:
-        data = pd.read_excel(input_path)
+        xls = pd.ExcelFile(input_path)
+
+        # 先优先找包含 depth 的工作表
+        target_sheet = None
+        for s in xls.sheet_names:
+            try:
+                preview = pd.read_excel(input_path, sheet_name=s, nrows=3)
+                cols = [str(c).strip() for c in preview.columns]
+                if 'depth' in cols:
+                    target_sheet = s
+                    break
+            except Exception:
+                pass
+
+        # 找到了就读那个 sheet，找不到再退回第一个 sheet
+        if target_sheet is not None:
+            data = pd.read_excel(input_path, sheet_name=target_sheet)
+        else:
+            data = pd.read_excel(input_path)
+
     elif filetype in ['.csv', '.txt', '.CSV', '.TXT', '.xyz']:
         data = pd.read_csv(input_path)
+
     elif filetype in ['.pkl', '.gz', '.bz2', '.zip', '.xz', '.zst', '.tar', '.tar.gz', '.tar.xz', '.tar.bz2']:
-        # pandas.read_pickle(filepath_or_buffer, compression='infer', storage_options=None)
         data = pd.read_pickle(input_path)
+
     elif filetype in ['.las', '.LAS']:
         import lasio
         data = lasio.read(input_path).df()
-        # pandas.read_json(path_or_buf, *, orient=None, typ='frame', dtype=None, convert_axes=None, convert_dates=True, keep_default_dates=True, precise_float=False, date_unit=None, encoding=None, encoding_errors='strict', lines=False, chunksize=None, compression='infer', nrows=None, storage_options=None, dtype_backend=_NoDefault.no_default, engine='ujson')
+
     elif filetype in ['.josn']:
         from io import StringIO
         data = pd.read_json(StringIO(input_path), dtype_backend="numpy_nullable")
+
     elif filetype in ['.sav']:
         data = pd.read_spss(input_path)
+
     elif filetype in ['.sas7bdat']:
         data = pd.read_sas(input_path)
+
     elif filetype in ['.orc']:
         data = pd.read_orc(input_path)
+
     elif filetype in ['.feather']:
         data = pd.read_feather(input_path)
-        # elif filetype in ['.html']:
-    #     data = pd.read_html(input_path)
+
     elif filetype in ['.h5']:
         data = pd.read_hdf(input_path)
+
     elif filetype in ['.dta']:
         data = pd.read_stata(input_path)
+
     else:
-        data = pd.read_table(input_path)
+        raise ValueError(f'暂不支持的文件类型: {filetype}')
+
     return data
 
 
@@ -514,9 +541,9 @@ def Fracturing_Singlestage_optimization(data, key, depth_index, firstdepth, sd_m
     for depth_ind in datapart[depth_index]:
         datapartslices = data.loc[(data[depth_index] <= firstdepth) & (data[depth_index] >= depth_ind)].reset_index(
             drop=True)
-        print('****************************')
-        print(datapartslices)
-        print(key)
+        # print('****************************')
+        # print(datapartslices)
+        # print(key)
         resultnames = gross_names(datapartslices, key)
         aaass = []
         for resultname in resultnames:
@@ -532,7 +559,7 @@ def gettopbotom(wellname, data, codename, depth_index, skip=2):
     result = []
     kk = 0
     data['labeme'] = -1
-    print(data[codename])
+    # print(data[codename])
     for i in range(len(data[codename])):
         if i == 0:
             data['labeme'][i] = kk
@@ -566,7 +593,7 @@ def section_feature_extraction(wellname, sectiondata, log_data, logcolnames, top
         # print(welldata)
         topdepth0 = sectiondata[topdepth][ind]
         botdepth0 = sectiondata[botdepth][ind]
-        print(wellname, topdepth0, botdepth0)
+        # print(wellname, topdepth0, botdepth0)
         logdata = log_data.loc[(log_data[depthindex] >= topdepth0) & (log_data[depthindex] <= botdepth0)]
         for colname in logcolnames:
             bbbb = logdata.replace([np.inf, -np.inf], np.nan)
@@ -638,7 +665,7 @@ def Fracturing_Multistage_optimization(wellname1, data, key, desion_cuve, depth_
     stages_depths = pd.DataFrame(stages_depth)
     stages_depths.columns = ['井名', '级数', '顶深', '底深', "段长", '集中度'] + ["第" + str(i + 1) + "射孔深度" for i
                                                                                   in range(cluster_num)]
-    print(stages_depths)
+    # print(stages_depths)
     return stages_depths
 
 
@@ -719,8 +746,8 @@ def Fracturing_Multistage_optimization_single_well(path, lognames, key, desion_c
 
     skdatas = pd.DataFrame(skdata)
     skdatas.columns = ['井名', '段号', "簇号", '顶深', '底深']
-    print(stages_depths)
-    print(skdatas)
+    # print(stages_depths)
+    # print(skdatas)
     # stages_depths.to_excel(os.path.join(outpath, wellname + '段大数据设计结果.xlsx'), index=False)
 
     # skdatas.to_excel(os.path.join(outpath, wellname + '簇大数据设计结果.xlsx'), index=False)
@@ -857,7 +884,7 @@ def Fracturing_Multistage_optimization_Multiwell(logspath, wellnames, lognames, 
         data_new = pd.DataFrame(logspath)
         # Fracturing_Multistage_optimization_single_well(path,lognames,key,desion_cuve,depth_index,firstdepth=None,stopdepth=None,sd_min=45,sd_max=80,cluster_num=3,topbotlength=5,lenth=0.5,space=5,skip=2,modetype='maximum',outpath='outputh')
         if key == None:
-            data_new['Kmeans'] = KMeans_RandomizedSearchCV(data_new[lognames], num=num_cluster)
+            data_new['Kmeans'] = Kmeans_cluster(data_new[lognames], num_cluster=num_cluster)
             if (len(firstdepths) == 0) or (len(stopdepths) == 0):
                 stages_data, sk_data = Fracturing_Multistage_optimization_single_well2(wellname1, data_new, lognames,
                                                                                        'Kmeans', desion_cuve,
@@ -903,9 +930,9 @@ def Fracturing_Multistage_optimization_Multiwell(logspath, wellnames, lognames, 
                                                                                        lenth=lenth, space=space,
                                                                                        modetype=modetype,
                                                                                        outpath=outpath_siglewell)
-        print(wellname1)
-        print(stages_data)
-        print(sk_data)
+        # print(wellname1)
+        # print(stages_data)
+        # print(sk_data)
         stages_data.to_excel(outpath_siglewell + '/' + '多井压裂段智能优化设计成果表.xlsx', index=0)
         sk_data.to_excel(outpath_siglewell + '/' + '多井压裂簇智能优化设计成果表.xlsx', index=0)
         return stages_data, sk_data
@@ -918,7 +945,7 @@ def Fracturing_Multistage_optimization_Multiwell(logspath, wellnames, lognames, 
             logpath_i = os.path.join(logspath, wellname1 + filetype1)
             data_new = data_read(logpath_i)
             if key == None:
-                data_new['Kmeans'] = KMeans_RandomizedSearchCV(data_new[lognames], num=num_cluster)
+                data_new['Kmeans'] = Kmeans_cluster(data_new[lognames], num_cluster=num_cluster)
                 if (len(firstdepths) == 0) or (len(stopdepths) == 0):
                     stages_data, sk_data = Fracturing_Multistage_optimization_single_well2(wellname1, data_new,
                                                                                            lognames, 'Kmeans',
@@ -974,9 +1001,9 @@ def Fracturing_Multistage_optimization_Multiwell(logspath, wellnames, lognames, 
                 stages_result = stages_data
                 sk_result = sk_data
             else:
-                print(wellname1)
-                print(stages_data)
-                print(sk_data)
+                # print(wellname1)
+                # print(stages_data)
+                # print(sk_data)
                 stages_result0 = pd.concat((stages_result, stages_data), axis=0)
                 stages_result = stages_result0
                 sk_result0 = pd.concat((sk_result, sk_data), axis=0)
@@ -1021,8 +1048,8 @@ def Fracturing_Multistage_optimization_Multiwell(logspath, wellnames, lognames, 
 # data.to_excel('F:\\pycode\\GE_software\\tools\\吴总数据\\3HC_reslut.xlsx',index=False)
 # # Fracturing_Multistage_optimization_Multiwell(logspath,lognames,desion_cuve,depth_index,firstdepth,sd_min=45,sd_max=60,num_cluster=10,cluster_num=3,topbotlength=5,lenth=0.5,space=5,replace_depth_names=['Depth','DEPTH','DEPT'])
 
-path = r"D:\微信下载\WeChat Files\wxid_68hl91pn8bse22\FileStorage\File\2024-04\123564\Q6.xlsx"
-logspath = r"D:\微信下载\WeChat Files\wxid_68hl91pn8bse22\FileStorage\File\2024-04\测井资料标准化\xlsx"
+# path = r"D:\微信下载\WeChat Files\wxid_68hl91pn8bse22\FileStorage\File\2024-04\123564\Q6.xlsx"
+# logspath = r"D:\测试数据\示踪剂数据"
 # data=pd.read_excel(path)
 # data['Kmeans']=Kmeans_cluster(data[['GR','DT']],num_cluster=10)
 # result_map(data,log_names=['GR','DT'],pred_names=False,geonames=['Kmeans'],depth_index='depth')
@@ -1045,8 +1072,11 @@ logspath = r"D:\微信下载\WeChat Files\wxid_68hl91pn8bse22\FileStorage\File\2
 # print('##############',stopdepths)
 # lognames = ['GR', 'SP', 'LLD', 'MSFL', 'LLS', 'AC', 'DEN', 'CNL']
 # desion_cuve = 'AC'
-# Fracturing_Multistage_optimization_Multiwell(logspath, wellnames, lognames, desion_cuve, depth_index='depth',
+# a = Fracturing_Multistage_optimization_Multiwell(logspath, wellnames, lognames, desion_cuve, depth_index='depth',
 #                                              firstdepths=firstdepths, stopdepths=stopdepths, key=None, num_cluster=10,
 #                                              sd_min=45, sd_max=60, cluster_num=3, topbotlength=5, lenth=0.5, space=5,
 #                                              modetype='maximum', outpath='段簇自动优化')
+#
+# print(a)
+
 

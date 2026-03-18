@@ -18,6 +18,9 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
 
 from .pkg import 段簇 as runmain
 
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
+
 
 class Widget(OWWidget):
     # Widget needs a name, or it is considered an abstract widget
@@ -37,6 +40,9 @@ class Widget(OWWidget):
         filepath = Input("文件路径", str, auto_summary=False)
         file_name = Input("文件名", list, auto_summary=False)
 
+        # 新增标准 payload 输入
+        payload = Input("payload", dict, auto_summary=False)
+
     user_input = None
     data: pd.DataFrame = None
     data_orange = None
@@ -54,24 +60,51 @@ class Widget(OWWidget):
     file_name = None
     lognames = []
 
+    input_payload = None
+    payload_file_names = None
+    payload_file_paths = None
+
+    def _coerce_data_list(self, data_list):
+        dfs = []
+        if not data_list:
+            return dfs
+
+        for obj in data_list:
+            if isinstance(obj, Table):
+                df = table_to_frame(obj)
+                self.merge_metas(obj, df)
+                dfs.append(df)
+            elif isinstance(obj, pd.DataFrame):
+                dfs.append(obj.copy())
+        return dfs
+
+    def _normalize_well_name(self, name):
+        return os.path.splitext(str(name))[0] if name is not None else ""
+
+    def _resolve_payload_folder(self, payload):
+        folder = PayloadManager.get_primary_folder(payload)
+        if folder:
+            return folder
+
+        file_paths = PayloadManager.get_file_paths(payload)
+        if file_paths:
+            first_path = file_paths[0]
+            if os.path.isdir(first_path):
+                return first_path
+            return os.path.dirname(first_path)
+
+        return None
+
     @Inputs.data
     def set_data(self, data):
         if data:
             print("数据输入成功::::", data)
-            self.ALLdata = data
-
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.data: pd.DataFrame = df
-            elif isinstance(data[0], pd.DataFrame):
-                self.data: pd.DataFrame = data[0]
+            self.ALLdata = self._coerce_data_list(data)
+            self.data = self.ALLdata[0] if self.ALLdata else None
             self.read()
         else:
+            self.ALLdata = []
             self.data = None
-
-    firstdepths = None
-    stopdepths = None
 
     @Inputs.filepath
     def set_filepath(self, filepath):
@@ -80,30 +113,91 @@ class Widget(OWWidget):
             print("文件路径输入成功::::", filepath)
         else:
             self.user_inputpath = None
+
         try:
             self.getfile34()
-        except:
-            print('请先输入文件名')
+        except Exception as e:
+            print('请先输入文件名', e)
 
-        # wellnames99, self.firstdepths, self.stopdepths = self.getdepthlist(self.user_inputpath, depth_index=self.depth_index)
+        try:
+            self.fillfile()
+        except Exception as e:
+            print('fillfile 失败', e)
 
     @Inputs.file_name
     def set_file_name(self, file_name):
         if file_name:
-            self.file_name = file_name
+            self.file_name = list(file_name)
             print("文件名输入成功::::", file_name)
         else:
-            self.file_name = None
+            self.file_name = []
+
         try:
             self.fillfile()
-        except:
-            print('请先输入文件路径')
+        except Exception as e:
+            print('请先输入文件路径', e)
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="process",
+            task="optimize",
+            data_kind="table_batch",
+        )
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
+        self._apply_payload_input(self.input_payload)
+
+    def _apply_payload_input(self, payload):
+        dfs = PayloadManager.get_dataframes(payload)
+        tables = PayloadManager.get_tables(payload)
+        self.payload_file_names = PayloadManager.get_file_names(payload)
+        self.payload_file_paths = PayloadManager.get_file_paths(payload)
+
+        if dfs:
+            self.ALLdata = [df.copy() for df in dfs]
+        elif tables:
+            self.ALLdata = []
+            for table in tables:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+                self.ALLdata.append(df)
+        else:
+            self.ALLdata = []
+
+        self.data = self.ALLdata[0] if self.ALLdata else None
+        self.file_name = list(self.payload_file_names) if self.payload_file_names else []
+
+        resolved_folder = self._resolve_payload_folder(payload)
+        self.user_inputpath = resolved_folder
+
+        if self.user_inputpath:
+            try:
+                self.getfile34()
+            except Exception as e:
+                print("payload 深度列表读取失败:", e)
+
+        try:
+            self.fillfile()
+        except Exception as e:
+            print("payload fillfile 失败:", e)
+
+        if self.data is not None:
+            self.read()
 
     class Outputs:  # TODO:输出
         tableDuan = Output("段表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
         tableCu = Output("簇表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
         dataDuan = Output("段数据List", list, auto_summary=False)  # 输出给控件
         dataCu = Output("簇数据List", list, auto_summary=False)  # 输出给控件
+
+        # 新增标准 payload 输出
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -157,19 +251,21 @@ class Widget(OWWidget):
 
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
     def ignore_function(self, text, prop):
-        # 执行 '忽略' 选项后的处理逻辑
-        # print("忽略选项被选择，执行相应的函数")
         if text == '忽略':
             print("忽略选项被选择，执行相应的函数", prop)
             columns = prop
             if self.data.index.duplicated().any():
                 self.data.reset_index(drop=True, inplace=True)
-            self.data = self.data.drop(columns=columns)
+            if columns in self.data.columns:
+                self.data = self.data.drop(columns=columns)
+
         elif text == '深度索引':
-            self.depth_index = text
+            self.depth_index = prop
             print("深度索引被选择，执行相应的函数", self.depth_index)
+
         elif text == '特征':
-            self.lognames.append(prop)
+            if prop not in self.lognames:
+                self.lognames.append(prop)
             print("特征被选择，执行相应的函数", self.lognames)
 
     num_cluster = 10
@@ -179,29 +275,96 @@ class Widget(OWWidget):
     topbotlength = 5
     lenth = 0.5
     space = 5
+    #
+    # def run(self):
+    #     # """【核心入口方法】发送按钮回调"""
+    #     if self.data is None:
+    #         self.warning('请先输入数据')
+    #         return
+    #
+    #     #
+    #
+    #     #             Fracturing_Multistage_optimization_Multiwell(self.user_inputpath, self.file_name ,self.lognames, self.desion_cuve, self.depth_index,
+    #     #                                              firstdepths=self.firstdepths, stopdepths=self.stopdepths, self.key, self.num_cluster,
+    #     #                                              self.sd_min=45, self.sd_max=60, self.cluster_num=3, self.topbotlength=5, self.lenth=0.5, self.space=5,
+    #     #                                              self.modetype='maximum', outpath='段簇自动优化')
+    #
+    #     ##各项参数如下：
+    #     print('self.user_inputpath:', self.user_inputpath)
+    #     print('self.file_name:', self.file_name)
+    #     print('self.lognames:', self.lognames)
+    #     print('self.desion_cuve:', self.desion_cuve)
+    #     print('self.depth_index:', self.depth_index)
+    #     print('firstdepths:', self.firstdepths)
+    #     print('stopdepths:', self.stopdepths)
+    #
+    #     print('self.key:', self.key)
+    #     print('self.num_cluster:', self.num_cluster)
+    #     print('self.sd_min:', self.sd_min)
+    #     print('self.sd_max:', self.sd_max)
+    #     print('self.cluster_num:', self.cluster_num)
+    #     print('self.topbotlength:', self.topbotlength)
+    #     print('self.lenth:', self.lenth)
+    #     print('self.space:', self.space)
+    #     print('self.modetype:', self.modetype)
+    #
+    #     # 执行
+    #     stages_result, sk_result = runmain.Fracturing_Multistage_optimization_Multiwell(
+    #         self.user_inputpath, self.file_name, self.lognames, self.desion_cuve, self.depth_index,
+    #         firstdepths=self.firstdepths, stopdepths=self.stopdepths, key=self.key, num_cluster=self.num_cluster,
+    #         sd_min=self.sd_min, sd_max=self.sd_max, cluster_num=self.cluster_num, topbotlength=self.topbotlength,
+    #         lenth=self.lenth, space=self.space, modetype=self.modetype, outpath='段簇自动优化'
+    #     )
+    #     # 保存
+    #     filename = self.save(stages_result)
+    #     filename = self.save(sk_result)
+    #
+    #     # # 转置 DataFrame
+    #     # df_transposed = result.transpose()
+    #     # # 删除重复的行
+    #     # df_transposed_no_duplicates = df_transposed.drop_duplicates()
+    #     # # 再次转置 DataFrame
+    #     # result_df = df_transposed_no_duplicates.transpose()
+    #
+    #     # # 发送
+    #     self.Outputs.tableDuan.send(table_from_frame(stages_result))
+    #     self.Outputs.tableCu.send(table_from_frame(sk_result))
+    #     self.Outputs.dataDuan.send([stages_result])
+    #     self.Outputs.dataCu.send([sk_result])
 
     def run(self):
-        # """【核心入口方法】发送按钮回调"""
         if self.data is None:
             self.warning('请先输入数据')
             return
 
-        #
+        if not self.user_inputpath:
+            self.warning('请先输入文件路径')
+            return
 
-        #             Fracturing_Multistage_optimization_Multiwell(self.user_inputpath, self.file_name ,self.lognames, self.desion_cuve, self.depth_index,
-        #                                              firstdepths=self.firstdepths, stopdepths=self.stopdepths, self.key, self.num_cluster,
-        #                                              self.sd_min=45, self.sd_max=60, self.cluster_num=3, self.topbotlength=5, self.lenth=0.5, self.space=5,
-        #                                              self.modetype='maximum', outpath='段簇自动优化')
+        if not self.file_name:
+            self.warning('请先输入文件名')
+            return
 
-        ##各项参数如下：
+        if not self.depth_index:
+            self.warning('请先设置深度索引')
+            return
+
+        if not self.desion_cuve:
+            self.warning('请先选择簇优化决策曲线')
+            return
+
+        selected_names = list(self.LEFTlist) if self.LEFTlist else list(self.file_name)
+        if not selected_names:
+            self.warning('请至少选择一个井名/文件')
+            return
+
         print('self.user_inputpath:', self.user_inputpath)
-        print('self.file_name:', self.file_name)
+        print('selected_names:', selected_names)
         print('self.lognames:', self.lognames)
         print('self.desion_cuve:', self.desion_cuve)
         print('self.depth_index:', self.depth_index)
         print('firstdepths:', self.firstdepths)
         print('stopdepths:', self.stopdepths)
-
         print('self.key:', self.key)
         print('self.num_cluster:', self.num_cluster)
         print('self.sd_min:', self.sd_min)
@@ -212,29 +375,273 @@ class Widget(OWWidget):
         print('self.space:', self.space)
         print('self.modetype:', self.modetype)
 
-        # 执行
-        stages_result, sk_result = runmain.Fracturing_Multistage_optimization_Multiwell(
-            self.user_inputpath, self.file_name, self.lognames, self.desion_cuve, self.depth_index,
-            firstdepths=self.firstdepths, stopdepths=self.stopdepths, key=self.key, num_cluster=self.num_cluster,
-            sd_min=self.sd_min, sd_max=self.sd_max, cluster_num=self.cluster_num, topbotlength=self.topbotlength,
-            lenth=self.lenth, space=self.space, modetype=self.modetype, outpath='段簇自动优化'
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_design_task,
+            self._on_run_finished,
+            input_path=self.user_inputpath,
+            all_file_names=list(self.file_name),
+            selected_names=selected_names,
+            lognames=list(self.lognames) if self.lognames else [],
+            desion_cuve=self.desion_cuve,
+            depth_index=self.depth_index,
+            firstdepths=list(self.firstdepths) if self.firstdepths else [],
+            stopdepths=list(self.stopdepths) if self.stopdepths else [],
+            key=self.key,
+            num_cluster=self.num_cluster,
+            sd_min=self.sd_min,
+            sd_max=self.sd_max,
+            cluster_num=self.cluster_num,
+            topbotlength=self.topbotlength,
+            lenth=self.lenth,
+            space=self.space,
+            modetype=self.modetype,
         )
-        # 保存
-        filename = self.save(stages_result)
-        filename = self.save(sk_result)
 
-        # # 转置 DataFrame
-        # df_transposed = result.transpose()
-        # # 删除重复的行
-        # df_transposed_no_duplicates = df_transposed.drop_duplicates()
-        # # 再次转置 DataFrame
-        # result_df = df_transposed_no_duplicates.transpose()
+        if not started:
+            self.warning("当前已有任务在运行，请稍后再试")
 
-        # # 发送
-        self.Outputs.tableDuan.send(table_from_frame(stages_result))
-        self.Outputs.tableCu.send(table_from_frame(sk_result))
+    def _save_result_with_suffix(self, result: pd.DataFrame, suffix: str):
+        filename = self.output_file_name.replace('.xlsx', f'_{suffix}.xlsx')
+        outputPath = self.default_output_path + self.output_super_folder
+
+        if self.save_radio == 0:
+            os.makedirs(outputPath, exist_ok=True)
+        elif self.save_radio == 1 and self.save_path:
+            outputPath = self.save_path
+        else:
+            return filename, ""
+
+        full_path = os.path.join(outputPath, filename)
+        result.to_excel(full_path, index=False)
+        return filename, full_path
+
+    def _run_design_task(
+        self,
+        *,
+        input_path,
+        all_file_names,
+        selected_names,
+        lognames,
+        desion_cuve,
+        depth_index,
+        firstdepths,
+        stopdepths,
+        key,
+        num_cluster,
+        sd_min,
+        sd_max,
+        cluster_num,
+        topbotlength,
+        lenth,
+        space,
+        modetype,
+        setProgress=None,
+        isCancelled=None
+    ):
+        if setProgress:
+            setProgress(5)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True}
+
+        # 左侧勾选项真正参与计算
+        normalized_selected = [self._normalize_well_name(x) for x in selected_names]
+        normalized_all = [self._normalize_well_name(x) for x in all_file_names]
+
+        selected_set = set(normalized_selected)
+        selected_wells = [w for w in normalized_all if w in selected_set] if selected_set else normalized_all
+
+        depth_map = {}
+        for i, well in enumerate(normalized_all):
+            first_v = firstdepths[i] if i < len(firstdepths) else None
+            stop_v = stopdepths[i] if i < len(stopdepths) else None
+            depth_map[well] = (first_v, stop_v)
+
+        selected_firstdepths = [depth_map[w][0] for w in selected_wells if w in depth_map]
+        selected_stopdepths = [depth_map[w][1] for w in selected_wells if w in depth_map]
+
+        if setProgress:
+            setProgress(30)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True}
+
+        stages_result, sk_result = runmain.Fracturing_Multistage_optimization_Multiwell(
+            input_path,
+            selected_wells,
+            lognames,
+            desion_cuve,
+            depth_index,
+            firstdepths=selected_firstdepths,
+            stopdepths=selected_stopdepths,
+            key=key,
+            num_cluster=num_cluster,
+            sd_min=sd_min,
+            sd_max=sd_max,
+            cluster_num=cluster_num,
+            topbotlength=topbotlength,
+            lenth=lenth,
+            space=space,
+            modetype=modetype,
+            outpath='段簇自动优化'
+        )
+
+        if setProgress:
+            setProgress(90)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True}
+
+        return {
+            "cancelled": False,
+            "stages_result": stages_result,
+            "sk_result": sk_result,
+            "selected_wells": selected_wells,
+        }
+
+    def _on_run_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            print(e)
+            self.error("段簇优化设计运行失败，请检查参数设置和输入数据")
+            return
+
+        if not task_result or task_result.get("cancelled"):
+            self.warning("任务已取消")
+            return
+
+        stages_result = task_result.get("stages_result")
+        sk_result = task_result.get("sk_result")
+        selected_wells = task_result.get("selected_wells", [])
+
+        if stages_result is None or sk_result is None:
+            self.error("未生成结果数据")
+            return
+
+        stages_table = table_from_frame(stages_result)
+        sk_table = table_from_frame(sk_result)
+
+        stage_filename, stage_file_path = self._save_result_with_suffix(stages_result, "段表")
+        cluster_filename, cluster_file_path = self._save_result_with_suffix(sk_result, "簇表")
+
+        # 老输出保留
+        self.Outputs.tableDuan.send(stages_table)
+        self.Outputs.tableCu.send(sk_table)
         self.Outputs.dataDuan.send([stages_result])
         self.Outputs.dataCu.send([sk_result])
+
+        # 新标准 payload 输出：一个 payload，多 item
+        output_payload = self.build_output_payload(
+            stages_result=stages_result,
+            sk_result=sk_result,
+            stages_table=stages_table,
+            sk_table=sk_table,
+            stage_filename=stage_filename,
+            stage_file_path=stage_file_path,
+            cluster_filename=cluster_filename,
+            cluster_file_path=cluster_file_path,
+            selected_wells=selected_wells,
+        )
+        self.Outputs.payload.send(output_payload)
+
+    def build_output_payload(
+        self,
+        *,
+        stages_result,
+        sk_result,
+        stages_table,
+        sk_table,
+        stage_filename,
+        stage_file_path,
+        cluster_filename,
+        cluster_file_path,
+        selected_wells
+    ):
+        if self.input_payload is not None:
+            output_payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            output_payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="process",
+                task="optimize",
+                data_kind="table_batch",
+            )
+
+        item_stage = PayloadManager.make_item(
+            file_path=stage_file_path,
+            orange_table=stages_table,
+            dataframe=stages_result,
+            sheet_name="",
+            role="stage_result",
+            meta={
+                "widget": self.name,
+                "saved_file_name": stage_filename,
+                "selected_wells": list(selected_wells),
+                "desion_cuve": self.desion_cuve,
+                "depth_index": self.depth_index,
+                "key": self.key,
+            }
+        )
+
+        item_cluster = PayloadManager.make_item(
+            file_path=cluster_file_path,
+            orange_table=sk_table,
+            dataframe=sk_result,
+            sheet_name="",
+            role="cluster_result",
+            meta={
+                "widget": self.name,
+                "saved_file_name": cluster_filename,
+                "selected_wells": list(selected_wells),
+                "desion_cuve": self.desion_cuve,
+                "depth_index": self.depth_index,
+                "key": self.key,
+            }
+        )
+
+        output_payload = PayloadManager.replace_items(
+            output_payload,
+            [item_stage, item_cluster],
+            data_kind="table_batch"
+        )
+
+        output_payload = PayloadManager.set_result(
+            output_payload,
+            orange_table=stages_table,
+            dataframe=stages_result,
+            extra={
+                "stage_file_name": stage_filename,
+                "cluster_file_name": cluster_filename,
+                "cluster_rows": len(sk_result),
+            }
+        )
+
+        output_payload = PayloadManager.update_context(
+            output_payload,
+            source_folder=self.user_inputpath or "",
+            selected_wells=list(selected_wells),
+            lognames=list(self.lognames) if self.lognames else [],
+            desion_cuve=self.desion_cuve,
+            depth_index=self.depth_index,
+            key=self.key,
+            num_cluster=self.num_cluster,
+            sd_min=self.sd_min,
+            sd_max=self.sd_max,
+            cluster_num=self.cluster_num,
+            topbotlength=self.topbotlength,
+            lenth=self.lenth,
+            space=self.space,
+            modetype=self.modetype,
+        )
+
+        output_payload["legacy"].update({
+            "stage_data_list": [stages_result],
+            "cluster_data_list": [sk_result],
+        })
+
+        return output_payload
 
     def read(self):
         """读取数据方法"""
@@ -243,6 +650,8 @@ class Widget(OWWidget):
 
         self.selectedWellName = []
         self.propertyDict = {}
+        self.lognames = []
+        self.depth_index = None
 
         # 填充属性表格
         self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
@@ -259,51 +668,35 @@ class Widget(OWWidget):
         return self.firstdepths, self.stopdepths
 
     def fillfile(self):
-        names = self.file_name
+        self.tableWidgetLEFT.setRowCount(0)
+        self.LEFTlist = []
 
-        # 循环填充表格
-        for x in range(len(names)):
-            # 如果表格的行数不足，插入新行
-            if x >= self.tableWidgetLEFT.rowCount():
-                self.tableWidgetLEFT.insertRow(x)
+        names = self.file_name if self.file_name else []
+        if not names:
+            return
 
-            # 创建复选框
+        for x, name in enumerate(names):
+            self.tableWidgetLEFT.insertRow(x)
+
             checkbox = QCheckBox()
-            # checkbox.setText(names[x].value)  # 设置复选框显示的文本
-            checkbox.setChecked(False)  # 默认不选中
-            checkbox.stateChanged.connect(lambda state, name=names[x]: self.on_checkbox_changed(state, name))
-
-            # 将复选框放置在表格的第一列
+            checkbox.setChecked(False)
+            checkbox.stateChanged.connect(
+                lambda state, name=name: self.on_checkbox_changed(state, name)
+            )
             self.tableWidgetLEFT.setCellWidget(x, 0, checkbox)
 
-            # 填充表格的第二列
-            self.tableWidgetLEFT.setItem(x, 1, QTableWidgetItem(names[x]))
+            self.tableWidgetLEFT.setItem(x, 1, QTableWidgetItem(str(name)))
 
-            # # 创建输入框并放置在第三列
-            # # input_box_1 = QLineEdit(self.firstdepths[x])
-            # # input_box_1.textChanged.connect(lambda text, row=x: self.on_input_changed(text, row, 0))
-            # # self.tableWidgetLEFT.setCellWidget(x, 2, input_box_1)
-            # for i, item in enumerate(self.firstdepths):
-            #     cell_widget = QTableWidgetItem(str(item))  # 将浮点数转换为字符串显示
-            #     self.tableWidgetLEFT.setItem(i, 2, cell_widget)
-            #
-            # self.tableWidgetLEFT.cellDoubleClicked.connect(self.on_cell_double_clicked)
-            #
-            # # 创建第二个输入框并放置在第四列
-            # # input_box_2 = QLineEdit(self.stopdepths[x])
-            # # input_box_2.textChanged.connect(lambda text, row=x: self.on_input_changed(text, row, 1))
-            # # self.tableWidgetLEFT.setCellWidget(x, 3, input_box_2)
-            # for i, item in enumerate(self.stopdepths):
-            #     cell_widget = QTableWidgetItem(str(item))
-            #     self.tableWidgetLEFT.setItem(i, 3, cell_widget)
+            item1 = QTableWidgetItem(str(self.firstdepths[x]) if self.firstdepths and x < len(self.firstdepths) else "")
+            item2 = QTableWidgetItem(str(self.stopdepths[x]) if self.stopdepths and x < len(self.stopdepths) else "")
+            self.tableWidgetLEFT.setItem(x, 2, item1)
+            self.tableWidgetLEFT.setItem(x, 3, item2)
 
-            for i in range(self.tableWidgetLEFT.rowCount()):
-                item1 = QTableWidgetItem(str(self.firstdepths[i]) if i < len(self.firstdepths) else "")
-                item2 = QTableWidgetItem(str(self.stopdepths[i]) if i < len(self.stopdepths) else "")
-                self.tableWidgetLEFT.setItem(i, 2, item1)
-                self.tableWidgetLEFT.setItem(i, 3, item2)
-
-            self.tableWidgetLEFT.cellDoubleClicked.connect(self.on_cell_double_clicked)
+        try:
+            self.tableWidgetLEFT.cellDoubleClicked.disconnect()
+        except Exception:
+            pass
+        self.tableWidgetLEFT.cellDoubleClicked.connect(self.on_cell_double_clicked)
 
     def on_cell_double_clicked(self, row, column):
         item = self.tableWidgetLEFT.item(row, column)
@@ -334,12 +727,12 @@ class Widget(OWWidget):
     def on_checkbox_changed(self, state, name):
         if state == Qt.Checked:
             print(f"Checkbox for {name} is checked")
-            self.LEFTlist.append(name)
-            # 在这里执行其他操作，例如将数据存储到Alldata中
+            if name not in self.LEFTlist:
+                self.LEFTlist.append(name)
         else:
             print(f"Checkbox for {name} is unchecked")
-            self.LEFTlist.remove(name)
-            # 在这里执行其他操作，例如从Alldata中删除数据
+            if name in self.LEFTlist:
+                self.LEFTlist.remove(name)
 
     def on_input_changed(self, text, row, column):
         # 当输入框的内容改变时，将值存储在列表中
@@ -348,11 +741,68 @@ class Widget(OWWidget):
         print(f"Input at row {row}, column {column} changed to: {text}")
 
     def fillprpo(self):
-        abc = self.data.columns.tolist()
+        abc = [str(x) for x in self.data.columns.tolist()]
+
+        self.comboBoxleft1.blockSignals(True)
+        self.comboBoxleft3.blockSignals(True)
+
+        self.comboBoxleft1.clear()
+        self.comboBoxleft3.clear()
+
+        # 簇优化决策曲线：直接放所有列
         self.comboBoxleft1.addItems(abc)
+
+        # 段优化决策曲线(key)：增加一个“自动聚类(KMeans)”作为默认选项
+        self.comboBoxleft3.addItem("自动聚类(KMeans)")
         self.comboBoxleft3.addItems(abc)
+
+        self.comboBoxleft1.blockSignals(False)
+        self.comboBoxleft3.blockSignals(False)
+
+        try:
+            self.comboBoxleft1.currentIndexChanged.disconnect()
+        except Exception:
+            pass
+        try:
+            self.comboBoxleft3.currentIndexChanged.disconnect()
+        except Exception:
+            pass
+
         self.comboBoxleft1.currentIndexChanged.connect(self.onComboBoxIndexChanged1)
         self.comboBoxleft3.currentIndexChanged.connect(self.onComboBoxIndexChanged3)
+
+        # ===== 决策曲线默认值：优先选择特征列，而不是 depth =====
+        preferred_curve = None
+
+        # 先优先从当前自动识别到的特征列里选
+        for col in self.lognames:
+            if col in abc:
+                preferred_curve = col
+                break
+
+        # 如果没有，再按常用曲线兜底
+        if preferred_curve is None:
+            for cand in ['AC', 'GR', 'SP', 'LLD', 'MSFL', 'LLS', 'DEN', 'CNL']:
+                if cand in abc:
+                    preferred_curve = cand
+                    break
+
+        # 实在没有才退化成第一列
+        if preferred_curve is None and abc:
+            preferred_curve = abc[0]
+
+        if preferred_curve is not None:
+            self.comboBoxleft1.setCurrentText(preferred_curve)
+            self.desion_cuve = preferred_curve
+        else:
+            self.desion_cuve = None
+
+        # ===== key 默认值：自动聚类(KMeans) -> None =====
+        self.comboBoxleft3.setCurrentIndex(0)
+        self.key = None
+
+        print("自动设置 desion_cuve:", self.desion_cuve)
+        print("自动设置 key:", self.key)
 
     def onComboBoxIndexChanged1(self, index):
         # 获取当前选择的文本
@@ -361,9 +811,13 @@ class Widget(OWWidget):
         print(f"当前选择desion_cuve是：{selected_text1}", self.desion_cuve)
 
     def onComboBoxIndexChanged3(self, index):
-        # 获取当前选择的文本
         selected_text3 = self.comboBoxleft3.currentText()
-        self.key = selected_text3
+
+        if selected_text3 == "自动聚类(KMeans)":
+            self.key = None
+        else:
+            self.key = selected_text3
+
         print(f"当前选择key是：{selected_text3}", self.key)
 
     modetype = 'maximum'
@@ -867,44 +1321,76 @@ class Widget(OWWidget):
         self.save_radio = 2
         self.save_path = None
 
+    # def onTextChanged(self, text):
+    #     # 获取输入框的内容
+    #     sender = self.sender()
+    #     if sender == self.input4:
+    #         text = int(text)
+    #         self.sd_min = text
+    #         print("最小段间距:", self.sd_min)
+    #         print(type(self.sd_min))
+    #     elif sender == self.input5:
+    #         text = int(text)
+    #         self.topbotlength = text
+    #         print("簇段顶底最小距离:", self.topbotlength)
+    #         print(type(self.topbotlength))
+    #     elif sender == self.input6:
+    #         text = float(text)
+    #         self.lenth = text
+    #         print("射孔长度:", self.lenth)
+    #         print(type(self.lenth))
+    #     elif sender == self.input7:
+    #         text = int(text)
+    #         self.num_cluster = text
+    #         print("聚类数:", self.num_cluster)
+    #         print(type(self.num_cluster))
+    #     elif sender == self.input9:
+    #         text = int(text)
+    #         self.sd_max = text
+    #         print("最大段间距:", self.sd_max)
+    #         print(type(self.sd_max))
+    #     elif sender == self.input10:
+    #         text = int(text)
+    #         self.space = text
+    #         print("最小簇间距:", self.space)
+    #         print(type(self.space))
+    #     elif sender == self.input11:
+    #         text = int(text)
+    #         self.cluster_num = text
+    #         print("簇数:", self.cluster_num)
+    #         print(type(self.cluster_num))
+
     def onTextChanged(self, text):
-        # 获取输入框的内容
         sender = self.sender()
-        if sender == self.input4:
-            text = int(text)
-            self.sd_min = text
-            print("最小段间距:", self.sd_min)
-            print(type(self.sd_min))
-        elif sender == self.input5:
-            text = int(text)
-            self.topbotlength = text
-            print("簇段顶底最小距离:", self.topbotlength)
-            print(type(self.topbotlength))
-        elif sender == self.input6:
-            text = float(text)
-            self.lenth = text
-            print("射孔长度:", self.lenth)
-            print(type(self.lenth))
-        elif sender == self.input7:
-            text = int(text)
-            self.num_cluster = text
-            print("聚类数:", self.num_cluster)
-            print(type(self.num_cluster))
-        elif sender == self.input9:
-            text = int(text)
-            self.sd_max = text
-            print("最大段间距:", self.sd_max)
-            print(type(self.sd_max))
-        elif sender == self.input10:
-            text = int(text)
-            self.space = text
-            print("最小簇间距:", self.space)
-            print(type(self.space))
-        elif sender == self.input11:
-            text = int(text)
-            self.cluster_num = text
-            print("簇数:", self.cluster_num)
-            print(type(self.cluster_num))
+        text = str(text).strip()
+
+        if text == "":
+            return
+
+        try:
+            if sender == self.input4:
+                self.sd_min = int(text)
+                print("最小段间距:", self.sd_min)
+            elif sender == self.input5:
+                self.topbotlength = int(text)
+                print("簇段顶底最小距离:", self.topbotlength)
+            elif sender == self.input6:
+                self.lenth = float(text)
+                print("射孔长度:", self.lenth)
+            elif sender == self.input7:
+                self.num_cluster = int(text)
+                print("聚类数:", self.num_cluster)
+            elif sender == self.input9:
+                self.sd_max = int(text)
+                print("最大段间距:", self.sd_max)
+            elif sender == self.input10:
+                self.space = int(text)
+                print("最小簇间距:", self.space)
+            elif sender == self.input11:
+                self.cluster_num = int(text)
+                print("簇数:", self.cluster_num)
+        except ValueError:
+            print("输入值格式错误:", text)
 
     def remove_filter(self, filter_layout):
         for i in reversed(range(filter_layout.count())):
