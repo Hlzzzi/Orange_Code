@@ -13,6 +13,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QCheckBox
 
 from .pkg import MyWidget
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 class Widget(OWWidget):
@@ -26,12 +28,18 @@ class Widget(OWWidget):
     category = '层段'
     want_main_area = False
     resizing_enabled = True
+    payloadYX_cache: dict = None
+    payloadDB_cache: dict = None
 
     class Inputs:  # TODO:输入
         # 压裂段数据：通过【测井数据加载】控件【多文件选择】功能载入
         dataYX = Input("层段数据", list, auto_summary=False)
         # 微地震数据：通过【测井数据加载】控件【单文件选择】功能载入
         dataDB = Input("单表数据", list, auto_summary=False)
+
+        # 新增 payload 双输入
+        payloadYX = Input("层段数据Payload", dict, auto_summary=False)
+        payloadDB = Input("单表数据Payload", dict, auto_summary=False)
 
     dataYX: pd.DataFrame = None
     dataDB: pd.DataFrame = None
@@ -54,12 +62,7 @@ class Widget(OWWidget):
     @Inputs.dataYX
     def set_dataYX(self, data):
         if data:
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.dataYX: pd.DataFrame = df
-            elif isinstance(data[0], pd.DataFrame):
-                self.dataYX: pd.DataFrame = data[0]
+            self.dataYX = self._coerce_to_dataframe(data)
             self.read()
         else:
             self.dataYX = None
@@ -67,21 +70,67 @@ class Widget(OWWidget):
     @Inputs.dataDB
     def set_dataDB(self, data):
         if data:
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.dataDB: pd.DataFrame = df
-            elif isinstance(data[0], pd.DataFrame):
-                self.dataDB: pd.DataFrame = data[0]
+            self.dataDB = self._coerce_to_dataframe(data)
             self.read()
         else:
             self.dataDB = None
+
+    @Inputs.payloadYX
+    def set_payloadYX(self, payload):
+        if not payload:
+            self.payloadYX_cache = None
+            return
+
+        self.payloadYX_cache = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="merge",
+            task="link",
+            data_kind="linked_table",
+        )
+
+        df = PayloadManager.get_single_dataframe(self.payloadYX_cache)
+        if df is None:
+            table = PayloadManager.get_single_table(self.payloadYX_cache)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+
+        self.dataYX = df
+        self.read()
+
+    @Inputs.payloadDB
+    def set_payloadDB(self, payload):
+        if not payload:
+            self.payloadDB_cache = None
+            return
+
+        self.payloadDB_cache = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="merge",
+            task="link",
+            data_kind="linked_table",
+        )
+
+        df = PayloadManager.get_single_dataframe(self.payloadDB_cache)
+        if df is None:
+            table = PayloadManager.get_single_table(self.payloadDB_cache)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+
+        self.dataDB = df
+        self.read()
 
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
         table = Output("数据(Data)", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
         raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
+
+        # 新增标准 payload 输出
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -118,36 +167,274 @@ class Widget(OWWidget):
     TextType = ['object', 'category']
     NumType = ['int64', 'float64']
 
+    def _coerce_to_dataframe(self, data):
+        """
+        把老 list 输入 / payload 解析后的主对象，统一转成 DataFrame
+        """
+        if data is None:
+            return None
+
+        # 老接口 list
+        if isinstance(data, list) and len(data) > 0:
+            obj = data[0]
+        else:
+            obj = data
+
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+
+        if isinstance(obj, pd.DataFrame):
+            return obj.copy()
+
+        return None
+
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
 
+    # def run(self):
+    #     """【核心入口方法】发送按钮回调"""
+    #     if self.dataYX is None or self.dataDB is None:
+    #         self.warning('请先输入数据')
+    #         return
+    #
+    #
+    #
+    #     # 执行
+    #     result = self.bigtable_sectiondata_annotation(section_top=self.section_top,  ## 顶深
+    #                                                   section_wellname=self.section_wellname, ## 井号
+    #                                                   section_bot=self.section_bot ## 底深
+    #                                                   , section_name=self.section_name, ## 目标
+    #                                                   ################ 以上是层段数据的参数
+    #                                                   ########### 以下是单表表数据的参数
+    #                                                   bigtable_wellname=self.bigtable_wellname,  ## 单表井名
+    #                                                   logdepthindex=self.logdepthindex)  ## 单表深度
+    #
+    #     print(self.section_top, self.section_wellname, self.section_bot, self.section_name, self.bigtable_wellname, self.logdepthindex)
+    #
+    #     # 保存
+    #     filename = self.save(result)
+    #
+    #
+    #     # 发送
+    #     self.Outputs.table.send(table_from_frame(result))
+    #     self.Outputs.data.send([result])
+    #     self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
+
     def run(self):
-        """【核心入口方法】发送按钮回调"""
+        """发送按钮回调"""
         if self.dataYX is None or self.dataDB is None:
             self.warning('请先输入数据')
             return
 
+        if not self.section_top or not self.section_wellname or not self.section_bot:
+            self.warning('请先设置层段数据的井名、顶深、底深索引')
+            return
 
+        if not self.section_name:
+            self.warning('请先设置层段目标列')
+            return
 
-        # 执行
-        result = self.bigtable_sectiondata_annotation(section_top=self.section_top,  ## 顶深
-                                                      section_wellname=self.section_wellname, ## 井号
-                                                      section_bot=self.section_bot ## 底深
-                                                      , section_name=self.section_name, ## 目标
-                                                      ################ 以上是层段数据的参数
-                                                      ########### 以下是单表表数据的参数
-                                                      bigtable_wellname=self.bigtable_wellname,  ## 单表井名
-                                                      logdepthindex=self.logdepthindex)  ## 单表深度
+        if not self.bigtable_wellname or not self.logdepthindex:
+            self.warning('请先设置单表数据的井名、深度索引')
+            return
 
-        print(self.section_top, self.section_wellname, self.section_bot, self.section_name, self.bigtable_wellname, self.logdepthindex)
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_link_task,
+            self._on_run_finished,
+            section_top=self.section_top,
+            section_wellname=self.section_wellname,
+            section_bot=self.section_bot,
+            section_name=self.section_name,
+            bigtable_wellname=self.bigtable_wellname,
+            logdepthindex=self.logdepthindex,
+        )
 
-        # 保存
-        filename = self.save(result)
+        if not started:
+            self.warning("当前已有任务在运行，请稍后再试")
 
+    def _run_link_task(
+            self,
+            *,
+            section_top,
+            section_wellname,
+            section_bot,
+            section_name,
+            bigtable_wellname,
+            logdepthindex,
+            setProgress=None,
+            isCancelled=None
+    ):
+        if setProgress:
+            setProgress(5)
 
-        # 发送
-        self.Outputs.table.send(table_from_frame(result))
-        self.Outputs.data.send([result])
-        self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
+        if isCancelled and isCancelled():
+            return {"cancelled": True, "result_df": None}
+
+        result = self.bigtable_sectiondata_annotation(
+            section_top=section_top,
+            section_wellname=section_wellname,
+            section_bot=section_bot,
+            section_name=section_name,
+            bigtable_wellname=bigtable_wellname,
+            logdepthindex=logdepthindex
+        )
+
+        if setProgress:
+            setProgress(90)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True, "result_df": None}
+
+        return {
+            "cancelled": False,
+            "result_df": result
+        }
+
+    def _on_run_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            print(e)
+            self.error("层段数据链接失败，请检查索引列设置和输入数据格式")
+            return
+
+        if not task_result or task_result.get("cancelled"):
+            self.warning("任务已取消")
+            return
+
+        result_df = task_result.get("result_df")
+        if result_df is None:
+            self.error("未生成结果数据")
+            return
+
+        filename = self.save(result_df)
+        result_table = table_from_frame(result_df)
+
+        # 老输出保留
+        self.Outputs.table.send(result_table)
+        self.Outputs.data.send([result_df])
+        self.Outputs.raw.send({
+            'maindata': result_df,
+            'target': [],
+            'future': [],
+            'filename': filename
+        })
+
+        # 新 payload 输出
+        output_payload = self.build_output_payload(
+            result_df=result_df,
+            result_table=result_table,
+            saved_filename=filename
+        )
+        self.Outputs.payload.send(output_payload)
+
+    def _resolve_saved_file_path(self, filename: str) -> str:
+        """
+        根据当前保存模式，推导实际保存路径；
+        如果当前是不保存模式，则返回空字符串
+        """
+        if not filename:
+            return ""
+
+        if self.save_radio == 0:
+            output_path = self.default_output_path + self.output_super_folder
+            return os.path.join(output_path, filename)
+
+        if self.save_radio == 1 and self.save_path:
+            return os.path.join(self.save_path, filename)
+
+        return ""
+
+    def build_output_payload(self, *, result_df, result_table, saved_filename):
+        """
+        双输入控件：
+        - 如果两路 payload 都有，先 merge_payloads
+        - 否则退化成 empty_payload
+        """
+        input_payloads = {}
+        if self.payloadYX_cache is not None:
+            input_payloads["layer"] = self.payloadYX_cache
+        if self.payloadDB_cache is not None:
+            input_payloads["single_table"] = self.payloadDB_cache
+
+        if input_payloads:
+            output_payload = PayloadManager.merge_payloads(
+                node_name=self.name,
+                input_payloads=input_payloads,
+                node_type="merge",
+                task="link",
+                data_kind="linked_table",
+                keep_input_payloads=False
+            )
+        else:
+            output_payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="merge",
+                task="link",
+                data_kind="linked_table"
+            )
+
+        saved_file_path = self._resolve_saved_file_path(saved_filename)
+
+        item = PayloadManager.make_item(
+            file_path=saved_file_path,
+            orange_table=result_table,
+            dataframe=result_df,
+            sheet_name="",
+            role="main",
+            meta={
+                "widget": self.name,
+                "section_wellname": self.section_wellname,
+                "section_top": self.section_top,
+                "section_bot": self.section_bot,
+                "section_name": self.section_name,
+                "bigtable_wellname": self.bigtable_wellname,
+                "logdepthindex": self.logdepthindex,
+                "selected_well_count": len(self.selectedWellName) if self.selectedWellName else 0,
+            }
+        )
+
+        output_payload = PayloadManager.replace_items(
+            output_payload,
+            [item],
+            data_kind="linked_table"
+        )
+
+        output_payload = PayloadManager.set_result(
+            output_payload,
+            orange_table=result_table,
+            dataframe=result_df,
+            extra={
+                "saved_filename": saved_filename,
+                "saved_file_path": saved_file_path,
+            }
+        )
+
+        output_payload = PayloadManager.update_context(
+            output_payload,
+            section_wellname=self.section_wellname,
+            section_top=self.section_top,
+            section_bot=self.section_bot,
+            section_name=self.section_name,
+            bigtable_wellname=self.bigtable_wellname,
+            logdepthindex=self.logdepthindex,
+            selected_wells=list(self.selectedWellName) if self.selectedWellName else [],
+        )
+
+        output_payload["legacy"].update({
+            "data_list": [result_df],
+            "data_dict": {
+                'maindata': result_df,
+                'target': [],
+                'future': [],
+                'filename': saved_filename
+            }
+        })
+
+        return output_payload
+
 
     def read(self):
         """读取数据方法"""
@@ -410,9 +697,11 @@ class Widget(OWWidget):
     def wellSelected(self, state, wellname):
         """井名选中状态改变回调"""
         if state == Qt.Checked:
-            self.selectedWellName.append(wellname)
+            if wellname not in self.selectedWellName:
+                self.selectedWellName.append(wellname)
         else:
-            self.selectedWellName.remove(wellname)
+            if wellname in self.selectedWellName:
+                self.selectedWellName.remove(wellname)
 
     def selectAllCallback(self):
         """全选按钮回调方法"""
