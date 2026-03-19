@@ -18,6 +18,9 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
 
 from .pkg import 机械比能参数重构 as runmain
 
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
+
 
 class Widget(OWWidget):
     # Widget needs a name, or it is considered an abstract widget
@@ -35,6 +38,7 @@ class Widget(OWWidget):
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
         data = Input("数据列表", list, auto_summary=False)
         file_name = Input("文件名列表", list, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -42,7 +46,7 @@ class Widget(OWWidget):
     State_colsAttr = []
     State_colAll = []  # 列表元素：每个文件对应的全选框的选取状态（T/F）
     waitdata = []
-    
+
     selectedWellName: list = None  # 选中的井名列表
     currentWellNameCol_YLD: str = None  # 压裂段井名索引
     currentWellNameCol_WDZ: str = None  # 微地震井名索引
@@ -52,6 +56,88 @@ class Widget(OWWidget):
 
     file_name = None
     lognames = []
+
+    def _coerce_to_dataframe(self, obj):
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+        if isinstance(obj, pd.DataFrame):
+            return obj
+        return None
+
+    def _materialize_dataframes(self, entries, names=None):
+        output_dir = os.path.abspath("output/机械比能参数")
+        os.makedirs(output_dir, exist_ok=True)
+        used_names = []
+        for i, entry in enumerate(entries):
+            df = self._coerce_to_dataframe(entry)
+            if df is None:
+                continue
+            base_name = None
+            if names and i < len(names):
+                base_name = str(names[i])
+            if not base_name:
+                base_name = f"item_{i + 1}"
+            base_name = os.path.splitext(base_name)[0]
+            file_path = os.path.join(output_dir, f"{base_name}.xlsx")
+            df.to_excel(file_path, index=False)
+            used_names.append(base_name)
+        return output_dir, used_names
+
+    def _apply_materialized_input(self, entries, names=None):
+        self.ALLdata = entries
+        if not entries:
+            self.data = None
+            self.user_inputpath = None
+            return
+        first_df = self._coerce_to_dataframe(entries[0])
+        if first_df is not None:
+            self.data = first_df
+        self.user_inputpath, materialized_names = self._materialize_dataframes(entries, names=names)
+        if materialized_names:
+            self.file_name = materialized_names
+        print("文件已保存到::::", self.user_inputpath)
+        self.read()
+        try:
+            self.fillfile()
+        except Exception:
+            pass
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="process",
+            task="transform",
+            data_kind="table_batch",
+        )
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
+        items = PayloadManager.get_items(self.input_payload)
+        entries = []
+        names = []
+        for i, item in enumerate(items):
+            obj = item.get('dataframe')
+            if obj is None and item.get('orange_table') is not None:
+                obj = item.get('orange_table')
+            if obj is None and item.get('file_path'):
+                file_path = item.get('file_path')
+                try:
+                    if file_path.lower().endswith(('.xls', '.xlsx')):
+                        obj = pd.read_excel(file_path)
+                    else:
+                        obj = pd.read_csv(file_path)
+                except Exception:
+                    obj = None
+            if obj is not None:
+                entries.append(obj)
+                names.append(item.get('file_stem') or item.get('file_name') or f'item_{i + 1}')
+        if entries:
+            self._apply_materialized_input(entries, names=names)
 
     @Inputs.data
     def set_data(self, data):
@@ -81,8 +167,7 @@ class Widget(OWWidget):
     firstdepths = None
     stopdepths = None
 
-
-        # wellnames99, self.firstdepths, self.stopdepths = self.getdepthlist(self.user_inputpath, depth_index=self.depth_index)
+    # wellnames99, self.firstdepths, self.stopdepths = self.getdepthlist(self.user_inputpath, depth_index=self.depth_index)
 
     @Inputs.file_name
     def set_file_name(self, file_name):
@@ -93,14 +178,15 @@ class Widget(OWWidget):
             self.file_name = None
         try:
             self.fillfile()
-        except:
+        except Exception:
             print('请先输入文件路径')
 
     class Outputs:  # TODO:输出
         table = Output("汇总大表", Table, auto_summary=False)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("汇总数据", list, auto_summary=False)  # 输出给控件
         file_name = Output("文件名", list, auto_summary=False)
-        # file_path = Output("文件路径", str, auto_summary=False)
+        file_path = Output("文件路径", str, auto_summary=False)
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -168,25 +254,25 @@ class Widget(OWWidget):
                 self.data.reset_index(drop=True, inplace=True)
             self.data = self.data.drop(columns=columns)
         elif text == '深度索引':
-            self.depth_index = text
+            self.depth_index = prop
             print("深度索引被选择，执行相应的函数", self.depth_index)
         elif text == '特征':
             self.lognames.append(prop)
             print("特征被选择，执行相应的函数", self.lognames)
         elif text == 'TORQUE':
-            self.Tor = text
+            self.Tor = prop
             print("TORQUE被选择，执行相应的函数", self.Tor)
         elif text == 'RPM':
-            self.rpm = text
+            self.rpm = prop
             print("RPM被选择，执行相应的函数", self.rpm)
         elif text == 'D':
-            self.diameter = text
+            self.diameter = prop
             print("D被选择，执行相应的函数", self.diameter)
         elif text == 'ROP':
-            self.rop = text
+            self.rop = prop
             print("ROP被选择，执行相应的函数", self.rop)
         elif text == 'WOB':
-            self.wob = text
+            self.wob = prop
             print("WOB被选择，执行相应的函数", self.wob)
 
     Amplitude = 1000
@@ -199,76 +285,171 @@ class Widget(OWWidget):
     max_clip = 10
     order = 201
 
-    def run(self):
-        # # """【核心入口方法】发送按钮回调"""
-        # if self.data is None:
-        #     self.warning('请先输入数据')
-        #     return
+    def _build_standard_column_mapping(self):
+        mapping = {}
+        if self.Tor:
+            mapping[self.Tor] = 'TORQUE'
+        if self.rpm:
+            mapping[self.rpm] = 'RPM'
+        if self.diameter:
+            mapping[self.diameter] = 'D'
+        if self.rop:
+            mapping[self.rop] = 'ROP'
+        if self.wob:
+            mapping[self.wob] = 'WOB'
+        return mapping
 
-        #
+    def _prepare_runtime_input_dir(self, setProgress=None, isCancelled=None):
+        source_dir = self.user_inputpath
+        runtime_dir = os.path.abspath(os.path.join('output', '机械比能参数', '_runtime_input'))
+        os.makedirs(runtime_dir, exist_ok=True)
+        mapping = self._build_standard_column_mapping()
+        file_names = []
+        files = []
+        if source_dir and os.path.isdir(source_dir):
+            for fn in os.listdir(source_dir):
+                if fn.lower().endswith(('.xlsx', '.xls', '.csv')):
+                    files.append(fn)
+        if not files and self.data is not None:
+            files = ['机械比能参数重构.xlsx']
+            temp_df = self.data.copy()
+            temp_path = os.path.join(source_dir, files[0]) if source_dir else os.path.join(runtime_dir, files[0])
+            os.makedirs(os.path.dirname(temp_path), exist_ok=True)
+            temp_df.to_excel(temp_path, index=False)
+            source_dir = os.path.dirname(temp_path)
+        total = max(len(files), 1)
+        for idx, fn in enumerate(files):
+            if isCancelled and isCancelled():
+                raise RuntimeError('任务已取消')
+            src_path = os.path.join(source_dir, fn)
+            try:
+                if fn.lower().endswith(('.xlsx', '.xls')):
+                    df = pd.read_excel(src_path)
+                else:
+                    df = pd.read_csv(src_path)
+            except Exception:
+                continue
+            for old_col, std_col in mapping.items():
+                if not old_col:
+                    continue
+                if old_col in df.columns:
+                    if old_col == std_col:
+                        continue
+                    if std_col in df.columns:
+                        df[std_col] = df[old_col]
+                    else:
+                        df.rename(columns={old_col: std_col}, inplace=True)
+            out_path = os.path.join(runtime_dir, os.path.splitext(fn)[0] + '.xlsx')
+            df.to_excel(out_path, index=False)
+            file_names.append(os.path.splitext(os.path.basename(out_path))[0])
+            if setProgress:
+                setProgress(10 + 40.0 * (idx + 1) / total)
+        return runtime_dir, file_names
 
-        # Calculation_MSE(logspath, Tor='TORQUE', rpm='RPM', diameter='D', rop='ROP', wob='WOB', Em=0.35,
-        #                 MSEtypes=['Teale', 'Pessier', 'Dupriest', 'Cherif', 'Fanhonghai'], depth_index='depth',
-        #                 replace_depth_names=['DEPT', 'DEPTH', 'depth', 'Depth', '#Depth'], out_path='机械比能参数重构',
-        #                 savemode='.csv')
-
-        ##各项参数如下：
-        print('self.user_inputpath:', self.user_inputpath)
-        print('self.file_name:', self.file_name)
-
-        print('self.Em:', self.Em)
-
-        print('self.Tor:', self.Tor)
-        print('self.rpm:', self.rpm)
-        print('self.diameter:', self.diameter)
-        print('self.rop:', self.rop)
-        print('self.wob:', self.wob)
-
-        print('MSEtypes:', self.MSEtypes)
-        print('depthindex::', self.depth_index)
-
-        # Calculation_MSE(logspath, Tor='TORQUE', rpm='RPM', diameter='D', rop='ROP', wob='WOB', Em=0.35,
-        #                 MSEtypes=['Teale', 'Pessier', 'Dupriest', 'Cherif', 'Fanhonghai'], depth_index='depth',
-        #                 replace_depth_names=['DEPT', 'DEPTH', 'depth', 'Depth', '#Depth'], out_path='机械比能参数重构',
-        #                 savemode='.csv')
-        #
-        result = runmain.Calculation_MSE(self.user_inputpath, Tor=self.Tor, rpm=self.rpm, diameter=self.diameter,
-                                         rop=self.rop, wob=self.wob, Em=self.Em,
-                                         MSEtypes=self.MSEtypes, depth_index=self.depth_index,
-                                         replace_depth_names=['DEPT', 'DEPTH', 'depth', 'Depth', '#Depth'])
-
-        #
-        #
-        # 创建一个文件夹来保存 Excel 文件
+    def _run_mse_task(self, setProgress=None, isCancelled=None):
+        if self.user_inputpath is None:
+            raise ValueError('请先输入数据')
+        if setProgress:
+            setProgress(1)
+        runtime_dir, runtime_file_names = self._prepare_runtime_input_dir(setProgress=setProgress,
+                                                                          isCancelled=isCancelled)
+        if isCancelled and isCancelled():
+            raise RuntimeError('任务已取消')
+        if setProgress:
+            setProgress(55)
+        result = runmain.Calculation_MSE(
+            runtime_dir,
+            Tor='TORQUE',
+            rpm='RPM',
+            diameter='D',
+            rop='ROP',
+            wob='WOB',
+            Em=self.Em,
+            MSEtypes=self.MSEtypes,
+            depth_index=self.depth_index,
+            replace_depth_names=['DEPT', 'DEPTH', 'depth', 'Depth', '#Depth']
+        )
         folder_path = './config_Cengduan/机械比能参数'
-        os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-        # 保存到文件夹中的 Excel 文件
-        excel_file_path = os.path.join(folder_path, '机械比能参数配置文件.xlsx')
-
-        result_df = runmain.add_filename_to_df(result, self.file_name)
-        # # 保存
-        filename = self.save(result_df)
-
-        # result_df.to_excel(excel_file_path, index=False)
-        #
+        os.makedirs(folder_path, exist_ok=True)
+        result_df = runmain.add_filename_to_df(result, runtime_file_names or self.file_name or [])
+        self.save(result_df)
         filelistt = []
-        # 按wellname列进行分组并保存为xlsx文件
-        for wellname, group_df in result_df.groupby('wellname'):
-            # 生成文件名
+        if 'wellname' in result_df.columns:
+            grouped = result_df.groupby('wellname')
+        else:
+            grouped = [('result', result_df)]
+        total_groups = max(len(getattr(grouped, 'groups', {})) if hasattr(grouped, 'groups') else len(list(grouped)), 1)
+        if not hasattr(grouped, 'groups'):
+            grouped = [('result', result_df)]
+        for idx, (wellname, group_df) in enumerate(grouped):
+            if isCancelled and isCancelled():
+                raise RuntimeError('任务已取消')
             file_name = os.path.join(folder_path, f'{wellname}.xlsx')
-            # 删除索引列以保持干净的xlsx文件
-            group_df.reset_index(drop=True, inplace=True)
-            # 保存为xlsx文件
+            group_df = group_df.reset_index(drop=True)
             group_df.to_excel(file_name, index=False)
-            filelistt.append(wellname)
+            filelistt.append(str(wellname))
+            if setProgress:
+                setProgress(70 + 25.0 * (idx + 1) / max(total_groups, 1))
+        excel_file_path = folder_path
+        if setProgress:
+            setProgress(100)
+        return result_df, excel_file_path, filelistt
 
-        # # # 发送
+    def build_output_payload(self, result_df, output_path, file_names):
+        if getattr(self, 'input_payload', None):
+            payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type='process',
+                task='transform',
+                data_kind='table_batch'
+            )
+        out_table = table_from_frame(result_df)
+        item = PayloadManager.make_item(
+            file_path=output_path,
+            orange_table=out_table,
+            dataframe=result_df,
+            role='main',
+            meta={'file_names': list(file_names) if file_names else []}
+        )
+        payload = PayloadManager.replace_items(payload, [item], data_kind='table_batch')
+        payload = PayloadManager.set_result(payload, orange_table=out_table, dataframe=result_df,
+                                            extra={'output_path': output_path,
+                                                   'file_names': list(file_names) if file_names else []})
+        payload = PayloadManager.update_context(payload, save_dir=output_path, Em=self.Em, MSEtypes=list(self.MSEtypes),
+                                                depth_index=self.depth_index)
+        payload['legacy'].update(
+            {'file_name': list(file_names) if file_names else [], 'file_path': output_path, 'data': [result_df]})
+        return payload
+
+    def _run_done(self, future):
+        try:
+            result_df, output_path, filelistt = future.result()
+        except Exception as e:
+            self.error(str(e))
+            return
         self.Outputs.table.send(table_from_frame(result_df))
         self.Outputs.data.send([result_df])
-        self.Outputs.file_path.send(folder_path)
+        self.Outputs.file_path.send(output_path)
         self.Outputs.file_name.send(filelistt)
-        # # self.Outputs.dataCu.send([sk_result])
+        self.Outputs.payload.send(self.build_output_payload(result_df, output_path, filelistt))
+
+    def run(self):
+        self.error()
+        if self.data is None and not self.user_inputpath:
+            self.warning('请先输入数据')
+            return
+        if not getattr(self, 'MSEtypes', None):
+            self.warning('请至少勾选一个机械比能公式')
+            return
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_mse_task,
+            self._run_done,
+        )
+        if not started:
+            self.warning('当前已有任务正在运行，请稍后再试')
 
     def read(self):
         """读取数据方法"""
@@ -291,7 +472,8 @@ class Widget(OWWidget):
         return self.firstdepths, self.stopdepths
 
     def fillfile(self):
-        names = self.file_name
+        names = self.file_name or []
+        self.tableWidgetLEFT.setRowCount(0)
 
         # 循环填充表格
         for x in range(len(names)):
@@ -683,6 +865,8 @@ class Widget(OWWidget):
         self.sort_order_ascending = False  # 用于跟踪排序顺序的变量
         self.label_content_mapping = {}
         self.clumN = None
+        self.input_payload = None
+        self.MSEtypes = []
 
         layout = QGridLayout()
         layout.setSpacing(3)
@@ -930,52 +1114,57 @@ class Widget(OWWidget):
 
     def onTextChanged(self, text):
         # 获取输入框的内容
+        if text == '':
+            return
         sender = self.sender()
-        if sender == self.input4:
-            text = int(text)
-            self.N = text
-            print("N:", self.N)
-            print(type(self.N))
-        elif sender == self.input5:
-            text = int(text)
-            self.window_size = text
-            print("window:", self.window_size)
-            print(type(self.window_size))
-        elif sender == self.input6:
-            text = float(text)
-            self.Em = text
-            print("Em:", self.Em)
-            print(type(self.Em))
-        elif sender == self.input7:
-            text = int(text)
-            self.Amplitude = text
-            print("Amplitude:", self.Amplitude)
-            print(type(self.Amplitude))
-        elif sender == self.input9:
-            text = float(text)
-            self.Small_a = text
-            print("a:", self.Small_a)
-            print(type(self.Small_a))
-        elif sender == self.input10:
-            text = int(text)
-            self.Big_A = text
-            print("A:", self.Big_A)
-            print(type(self.Big_A))
-        elif sender == self.input11:
-            text = int(text)
-            self.fs = text
-            print("fs:", self.fs)
-            print(type(self.fs))
-        elif sender == self.input12:
-            text = int(text)
-            self.max_clip = text
-            print("max_clip:", self.max_clip)
-            print(type(self.max_clip))
-        elif sender == self.input13:
-            text = int(text)
-            self.order = text
-            print("order:", self.order)
-            print(type(self.order))
+        try:
+            if sender == self.input4:
+                text = int(text)
+                self.N = text
+                print("N:", self.N)
+                print(type(self.N))
+            elif sender == self.input5:
+                text = int(text)
+                self.window_size = text
+                print("window:", self.window_size)
+                print(type(self.window_size))
+            elif sender == self.input6:
+                text = float(text)
+                self.Em = text
+                print("Em:", self.Em)
+                print(type(self.Em))
+            elif sender == self.input7:
+                text = int(text)
+                self.Amplitude = text
+                print("Amplitude:", self.Amplitude)
+                print(type(self.Amplitude))
+            elif sender == self.input9:
+                text = float(text)
+                self.Small_a = text
+                print("a:", self.Small_a)
+                print(type(self.Small_a))
+            elif sender == self.input10:
+                text = int(text)
+                self.Big_A = text
+                print("A:", self.Big_A)
+                print(type(self.Big_A))
+            elif sender == self.input11:
+                text = int(text)
+                self.fs = text
+                print("fs:", self.fs)
+                print(type(self.fs))
+            elif sender == self.input12:
+                text = int(text)
+                self.max_clip = text
+                print("max_clip:", self.max_clip)
+                print(type(self.max_clip))
+            elif sender == self.input13:
+                text = int(text)
+                self.order = text
+                print("order:", self.order)
+                print(type(self.order))
+        except ValueError:
+            return
 
     def remove_filter(self, filter_layout):
         for i in reversed(range(filter_layout.count())):

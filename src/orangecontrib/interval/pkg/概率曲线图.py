@@ -180,9 +180,13 @@ def sort(data, name, ascending=True):
     return dat0
 
 
-def Lorenz_cumulative_probability_curve(input_path, name, labelsize0=15, fontsize0=15, size=120,porpss=12, dictnames={},
-                                        classlists=[2.5, 16, 30], reverse=True, labeling='储层',
+def Lorenz_cumulative_probability_curve(input_path, name, labelsize0=15, fontsize0=15, size=120, porpss=12, dictnames=None,
+                                        classlists=None, reverse=True, labeling='储层',
                                         figurename='劳伦兹累积概率分类', savepath='输出数据'):
+    if dictnames is None:
+        dictnames = {}
+    if classlists is None:
+        classlists = [2.5, 16, 30]
     data = data_read(input_path)
     # data0=data.dropna()
     path, filename0 = os.path.split(input_path)

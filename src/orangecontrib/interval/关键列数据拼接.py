@@ -11,6 +11,11 @@ from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import OWWidget, Input, Output
 from PyQt5.QtCore import Qt
+
+
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
+
 from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QFileDialog, QSplitter, QPushButton, QHeaderView, QTabWidget, QComboBox, QTableWidgetItem, QWidget, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel, QRadioButton
@@ -48,6 +53,90 @@ class Widget(OWWidget):
         dataTable1 = Input("表格一数据", Table, auto_summary=False)
         dataTable2 = Input("表格二数据", Table, auto_summary=False)
 
+        payload1 = Input("表一payload", dict, auto_summary=False)
+        payload2 = Input("表二payload", dict, auto_summary=False)
+
+    def _extract_df_from_input(self, data):
+        if not data:
+            return None
+        first = data[0] if isinstance(data, list) else data
+        if isinstance(first, Table):
+            df = table_to_frame(first)
+            self.merge_metas(first, df)
+            return df
+        if isinstance(first, pd.DataFrame):
+            return first
+        return None
+
+    def _apply_dataframe_to_side(self, df: pd.DataFrame, side: str):
+        if df is None:
+            return
+        folder_path = './config_Cengduan/关键列数据拼接'
+        os.makedirs(folder_path, exist_ok=True)
+        if side == 'left':
+            self.data = df
+            self.input_path1 = os.path.join(folder_path, '关键列数据拼接配置文件1.xlsx')
+            df.to_excel(self.input_path1, index=False)
+            self.left_file_label.setText(f"表1文件: {self.input_path1}")
+            self.DATA1 = self.data_read(self.input_path1)
+            self.fillComboBox_1()
+        else:
+            self.data = df
+            self.input_path2 = os.path.join(folder_path, '关键列数据拼接配置文件2.xlsx')
+            df.to_excel(self.input_path2, index=False)
+            self.right_file_label.setText(f"表2文件: {self.input_path2}")
+            self.DATA2 = self.data_read(self.input_path2)
+            self.fillComboBox_2()
+
+    def _apply_path_to_side(self, file_path: str, side: str):
+        if not file_path:
+            return
+        if side == 'left':
+            self.input_path1 = file_path
+            self.left_file_label.setText(f"表1文件: {file_path}")
+            self.DATA1 = self.data_read(self.input_path1)
+            self.fillComboBox_1()
+        else:
+            self.input_path2 = file_path
+            self.right_file_label.setText(f"表2文件: {file_path}")
+            self.DATA2 = self.data_read(self.input_path2)
+            self.fillComboBox_2()
+
+    def _apply_payload_to_side(self, payload, side: str):
+        fixed = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="merge",
+            task="link",
+            data_kind="table_batch",
+        )
+        df = PayloadManager.get_single_dataframe(fixed)
+        if df is None:
+            table = PayloadManager.get_single_table(fixed)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+        if df is not None:
+            self._apply_dataframe_to_side(df, side)
+            return
+        file_paths = PayloadManager.get_file_paths(fixed)
+        if file_paths:
+            self._apply_path_to_side(file_paths[0], side)
+
+    @Inputs.payload1
+    def set_payload1(self, payload):
+        if payload:
+            self.input_payload1 = PayloadManager.ensure_payload(payload, node_name=self.name, node_type="merge", task="link", data_kind="table_batch")
+            print("payload1 输入成功::::", PayloadManager.summary(self.input_payload1))
+            self._apply_payload_to_side(self.input_payload1, 'left')
+
+    @Inputs.payload2
+    def set_payload2(self, payload):
+        if payload:
+            self.input_payload2 = PayloadManager.ensure_payload(payload, node_name=self.name, node_type="merge", task="link", data_kind="table_batch")
+            print("payload2 输入成功::::", PayloadManager.summary(self.input_payload2))
+            self._apply_payload_to_side(self.input_payload2, 'right')
+
     @Inputs.dataPH1
     def set_dataPH1(self, data):
         if data:
@@ -78,33 +167,11 @@ class Widget(OWWidget):
 
     @Inputs.dataPH2
     def set_dataPH2(self, data):
-
         if data:
             print("数据输入成功::::", data)
-            # self.ALLdata = data
-
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.data: pd.DataFrame = df
-            elif isinstance(data[0], pd.DataFrame):
-                self.data: pd.DataFrame = data[0]
-
-            # 创建一个文件夹来保存 Excel 文件
-            folder_path = './config_Cengduan/关键列数据拼接'
-            os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-            # 保存到文件夹中的 Excel 文件
-            self.input_path2 = os.path.join(folder_path, '关键列数据拼接配置文件2.xlsx')
-            print('保存配置文件到:', self.input_path2)
-            self.data.to_excel(self.input_path2, index=False)
-
-            print("dataPH2:", self.input_path2)
-
-            self.right_file_label.setText(f"表2文件: {self.input_path2}")
-
-            self.DATA2 = self.data_read(self.input_path2)
-            self.fillComboBox_2()
+            df = self._extract_df_from_input(data)
+            if df is not None:
+                self._apply_dataframe_to_side(df, 'right')
 
     @Inputs.dataTable1
     def set_dataTable1(self, data):
@@ -147,6 +214,7 @@ class Widget(OWWidget):
         table = Output("数据表格", Table, auto_summary=False)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
         Path = Output("数据路径", str, auto_summary=False)  # 输出给控件
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -209,38 +277,98 @@ class Widget(OWWidget):
 
     def run(self):
 
-        if self.input_path1 == None or self.input_path2 == None or self.Key_1 == None or self.Key_2 == None or self.FangFa == None:
+        if self.input_path1 is None or self.input_path2 is None or getattr(self, "Key_1", None) is None or getattr(self, "Key_2", None) is None or getattr(self, "FangFa", None) is None:
             self.warning('请先输入参数')
             return
-        else:
-            # 执行
-            result = self.data_merge(self.input_path1, self.input_path2, key1=self.Key_1, key2=self.Key_2,
-                                     jointype=self.FangFa)
 
-        # 删除重复的行
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_key_merge_task,
+            self._on_run_done,
+            self.input_path1,
+            self.input_path2,
+            self.Key_1,
+            self.Key_2,
+            self.FangFa,
+        )
+        if not started:
+            self.warning('当前已有任务在运行，请稍后再试')
+
+    def _run_key_merge_task(self, input_path1, input_path2, key1, key2, jointype, setProgress=None, isCancelled=None):
+        if setProgress:
+            setProgress(5)
+        result = self.data_merge(input_path1, input_path2, key1=key1, key2=key2, jointype=jointype)
+        if isCancelled and isCancelled():
+            raise RuntimeError('任务已取消')
+        if setProgress:
+            setProgress(60)
         df_transposed_no_duplicates = result.drop_duplicates()
-
-        # 创建一个文件夹来保存 Excel 文件
         folder_path = './config_Cengduan/关键列数据拼接'
-        os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-        # 保存到文件夹中的 Excel 文件
+        os.makedirs(folder_path, exist_ok=True)
         excel_file_path = os.path.join(folder_path, '关键列数据拼接配置文件.xlsx')
-
-        listfile = ['关键列数据拼接配置文件.xlsx']
-
-        # result_df = runmain.add_filename_to_df(result, listfile)
-        # # 保存
         filename = self.save(df_transposed_no_duplicates)
-
         df_transposed_no_duplicates.to_excel(excel_file_path, index=False)
-        #
-        # #
-        # #
-        # # # 发送
-        self.Outputs.table.send(table_from_frame(df_transposed_no_duplicates))
-        self.Outputs.data.send([df_transposed_no_duplicates])
+        if setProgress:
+            setProgress(100)
+        return {
+            'result_df': df_transposed_no_duplicates,
+            'excel_file_path': excel_file_path,
+            'filename': filename,
+        }
+
+    def build_output_payload(self, result_df, excel_file_path):
+        if self.input_payload1 and self.input_payload2:
+            payload = PayloadManager.merge_payloads(
+                node_name=self.name,
+                input_payloads={'left': self.input_payload1, 'right': self.input_payload2},
+                node_type='merge',
+                task='link',
+                data_kind='linked_table',
+            )
+        elif self.input_payload1:
+            payload = PayloadManager.clone_payload(self.input_payload1)
+        elif self.input_payload2:
+            payload = PayloadManager.clone_payload(self.input_payload2)
+        else:
+            payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type='merge',
+                task='link',
+                data_kind='linked_table',
+            )
+        out_table = table_from_frame(result_df)
+        item = PayloadManager.make_item(
+            file_path=excel_file_path,
+            orange_table=out_table,
+            dataframe=result_df,
+            role='main',
+            meta={'key1': self.Key_1, 'key2': self.Key_2, 'jointype': self.FangFa},
+        )
+        payload = PayloadManager.replace_items(payload, [item], data_kind='linked_table')
+        payload = PayloadManager.set_result(payload, orange_table=out_table, dataframe=result_df, extra={'output_path': excel_file_path})
+        payload = PayloadManager.update_context(payload, save_dir=os.path.dirname(excel_file_path), merge_key1=self.Key_1, merge_key2=self.Key_2, join_type=self.FangFa)
+        payload['legacy'].update({
+            'data_list': [result_df],
+            'path': excel_file_path,
+        })
+        return payload
+
+    def _on_run_done(self, future):
+        try:
+            output = future.result()
+        except Exception as e:
+            self.Error.clear()
+            self.Error.add_message('run_error', '关键列数据拼接运行失败: {}')
+            self.Error.run_error(str(e))
+            return
+
+        result_df = output['result_df']
+        excel_file_path = output['excel_file_path']
+        out_table = table_from_frame(result_df)
+        self.Outputs.table.send(out_table)
+        self.Outputs.data.send([result_df])
         self.Outputs.Path.send(excel_file_path)
+        self.Outputs.payload.send(self.build_output_payload(result_df, excel_file_path))
 
     def read(self):
         """读取数据方法"""
@@ -536,6 +664,11 @@ class Widget(OWWidget):
     def __init__(self):
         super().__init__()
         self.ddf = pd.DataFrame()
+        self.input_payload1 = None
+        self.input_payload2 = None
+        self.Key_1 = None
+        self.Key_2 = None
+        self.FangFa = None
 
         layout = QGridLayout()
         layout.setSpacing(3)

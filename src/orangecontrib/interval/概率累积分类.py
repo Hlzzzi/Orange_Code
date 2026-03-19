@@ -17,6 +17,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel
 
 from .pkg import 概率曲线图 as runmain
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 class Widget(OWWidget):
@@ -36,6 +38,7 @@ class Widget(OWWidget):
         data = Input("数据", list, auto_summary=False)
         # filepath = Input("文件路径", str, auto_summary=False)
         datatable = Input("数据表", Table,auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -51,28 +54,35 @@ class Widget(OWWidget):
     namedata = None
     # ALLdata = None
     user_inputpath = None
+    input_payload = None
+    payload_file_names = None
+    payload_file_paths = None
+
+    def _save_config_input(self):
+        folder_path = './config_Cengduan/概率累积分类'
+        os.makedirs(folder_path, exist_ok=True)
+        self.user_inputpath = os.path.join(folder_path, '概率累积分类配置文件.xlsx')
+        print('保存配置文件到:', self.user_inputpath)
+        self.data.to_excel(self.user_inputpath, index=False)
+
+    def _coerce_to_dataframe(self, data):
+        if data is None:
+            return None
+        obj = data[0] if isinstance(data, list) and len(data) > 0 else data
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+        elif isinstance(obj, pd.DataFrame):
+            return obj.copy()
+        return None
 
     @Inputs.data
     def set_data(self, data):
         if data:
             print("数据输入成功::::", data)
-            # self.ALLdata = data
-
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.data: pd.DataFrame = df
-            elif isinstance(data[0], pd.DataFrame):
-                self.data: pd.DataFrame = data[0]
-
-            # 创建一个文件夹来保存 Excel 文件
-            folder_path = './config_Cengduan/概率累积分类'
-            os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-            # 保存到文件夹中的 Excel 文件
-            self.user_inputpath = os.path.join(folder_path, '概率累积分类配置文件.xlsx')
-            print('保存配置文件到:', self.user_inputpath)
-            self.data.to_excel(self.user_inputpath, index=False)
+            self.data = self._coerce_to_dataframe(data)
+            self._save_config_input()
             self.read()
         else:
             self.data = None
@@ -82,17 +92,46 @@ class Widget(OWWidget):
         self.data_orange = data
         if data:
             self.data = table_to_frame(data)
-            # 创建一个文件夹来保存 Excel 文件
-            folder_path = './config_Cengduan/概率累积分类'
-            os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-            # 保存到文件夹中的 Excel 文件
-            self.user_inputpath = os.path.join(folder_path, '概率累积分类配置文件.xlsx')
-            print('保存配置文件到:', self.user_inputpath)
-            self.data.to_excel(self.user_inputpath, index=False)
+            self._save_config_input()
             self.read()
         else:
             self.data = None
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            self.payload_file_names = []
+            self.payload_file_paths = []
+            self.data = None
+            return
+
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type='process',
+            task='classify',
+            data_kind='table_batch',
+        )
+        print('payload 输入成功::::', PayloadManager.summary(self.input_payload))
+        self._apply_payload_input(self.input_payload)
+
+    def _apply_payload_input(self, payload):
+        self.payload_file_names = PayloadManager.get_file_names(payload)
+        self.payload_file_paths = PayloadManager.get_file_paths(payload)
+        primary_df = PayloadManager.get_single_dataframe(payload)
+        primary_table = PayloadManager.get_single_table(payload)
+        if primary_df is not None:
+            self.data = primary_df.copy()
+        elif primary_table is not None:
+            df = table_to_frame(primary_table)
+            self.merge_metas(primary_table, df)
+            self.data = df
+        else:
+            self.data = None
+        if self.data is not None:
+            self._save_config_input()
+            self.read()
 
     # @Inputs.filepath
     # def set_filepath(self, filepath):
@@ -105,6 +144,7 @@ class Widget(OWWidget):
     class Outputs:  # TODO:输出
         table = Output("数据(Data)", Table)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -164,62 +204,93 @@ class Widget(OWWidget):
             self.data = self.data.drop(columns=columns)
 
     def run(self):
-        # """【核心入口方法】发送按钮回调"""
-        # if self.data is None:
-        #     self.warning('请先输入数据')
-        #     return
-
-        ######labeling  标签名称   reverse  类别反转   classlists  分类列表    dictnames 修改名称
-        ### labelsize0=20, fontsize0=25, size=120   porpss=12    坐标轴刻度大小，坐标轴名称数据大小，点大小，图例大小
-
-        ##self.paranames 是paranames  用于存储选中的参数名 self.days 是days 用于存储选中的天数 self.bot 是bot 用于存储小数点位
-        ##wellname 是 self.wellname       LEFTlist 是选择的井名列表     name是 self.nameY
-        ##wellnames 是指定井名
-        ##self.user_inputpath  是文件路径
-        # print('self.wellname是属性:',self.wellname)
-        # # print('self.user_inputpath是文件路径:',self.user_inputpath)
-        # print('self.classlists是分类列表classlists:',self.classlists)
-        # print('self.labelsize0是坐标轴刻度大小:',self.labelsize0)
-        # print('self.fontsize0是坐标轴名称数据大小:',self.fontsize0)
-        # print('self.point_size:',self.point_size)
-        # print('self.porpss是图例大小:',self.porpss)
-        # print('self.reverse是类别反转:',self.reverse)
-        # print('self.dictnames是修改名称:',self.dictnames)
-        # print('标签名称',self.labeling)
-
-        # input_path = r"C:\Users\LHiennn\Desktop\测试数据\多井岩性数据合并.xlsx"
-        # name = '层厚'  ##属性
-        # Lorenz_cumulative_probability_curve(input_path, name, labelsize0=20, fontsize0=25, size=120, porpss=12,
-        #                                     dictnames={'目前日产气': ',${m^3}$/d', '目前日产气强度': '${m^3}$/km',
-        #                                                '层厚': ',m'},
-        #                                     classlists=[3, 8, 15], reverse=False, labeling='储层',
-        #                                     figurename='劳伦兹累积概率图', savepath='输出数据')
-
-        # 执行
-        result = runmain.Lorenz_cumulative_probability_curve(
-            input_path=self.user_inputpath, name=self.wellname, labelsize0=self.labelsize0, fontsize0=self.fontsize0,
+        if self.data is None:
+            self.warning('请先输入数据')
+            return
+        if not self.user_inputpath:
+            self.warning('缺少配置文件路径')
+            return
+        if not self.wellname or self.wellname not in self.data.columns:
+            self.warning('请先选择用于分类的属性列')
+            return
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_lorenz_task,
+            self._on_run_finished,
+            input_path=self.user_inputpath,
+            name=self.wellname,
+            labelsize0=self.labelsize0,
+            fontsize0=self.fontsize0,
             size=self.point_size,
-            porpss=self.porpss, dictnames=self.dictnames, classlists=self.classlists, reverse=self.reverse,
-            labeling=self.labeling, figurename='劳伦兹累积概率图', savepath='输出数据'
+            porpss=self.porpss,
+            dictnames=dict(self.dictnames),
+            classlists=list(self.classlists),
+            reverse=self.reverse,
+            labeling=self.labeling,
         )
-        # 保存
-        filename = self.save(result)
+        if not started:
+            self.warning('当前已有任务在运行，请稍后再试')
 
-        # 转置 DataFrame
-        # df_transposed = result.transpose()
-        # 删除重复的行
+    def _run_lorenz_task(self, *, input_path, name, labelsize0, fontsize0, size, porpss, dictnames, classlists, reverse, labeling, setProgress=None, isCancelled=None):
+        if setProgress:
+            setProgress(5)
+        if isCancelled and isCancelled():
+            return {'cancelled': True}
+        result = runmain.Lorenz_cumulative_probability_curve(
+            input_path=input_path, name=name, labelsize0=labelsize0, fontsize0=fontsize0,
+            size=size, porpss=porpss, dictnames=dictnames, classlists=classlists, reverse=reverse,
+            labeling=labeling, figurename='劳伦兹累积概率图', savepath='输出数据'
+        )
         result_df = result.drop_duplicates()
-        # 再次转置 DataFrame
-        # result_df = df_transposed_no_duplicates.transpose()
+        if setProgress:
+            setProgress(90)
+        if isCancelled and isCancelled():
+            return {'cancelled': True}
+        return {'cancelled': False, 'result_df': result_df}
 
-        print('resesesesese::', result_df)
-        print(type(result_df))
-        # a = table_from_frame(result_df)
-        # dfT = table_to_frame(a, include_metas=True)
+    def _resolve_saved_file_path(self, filename: str) -> str:
+        if not filename:
+            return ''
+        outputPath = self.default_output_path + self.output_super_folder
+        if self.save_radio == 0:
+            return os.path.join(outputPath, filename)
+        elif self.save_radio == 1 and self.save_path:
+            return os.path.join(self.save_path, filename)
+        return ''
 
-        # # 发送
-        self.Outputs.table.send(table_from_frame(result_df))
+    def _on_run_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            print(e)
+            self.error('概率累积分类运行失败，请检查属性列和分类参数设置')
+            return
+        if not task_result or task_result.get('cancelled'):
+            self.warning('任务已取消')
+            return
+        result_df = task_result.get('result_df')
+        if result_df is None or result_df.empty:
+            self.error('未生成结果数据')
+            return
+        filename = self.save(result_df)
+        result_table = table_from_frame(result_df)
+        self.Outputs.table.send(result_table)
         self.Outputs.data.send([result_df])
+        output_payload = self.build_output_payload(result_df=result_df, result_table=result_table, saved_filename=filename)
+        self.Outputs.payload.send(output_payload)
+
+    def build_output_payload(self, *, result_df, result_table, saved_filename):
+        if self.input_payload is not None:
+            output_payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            output_payload = PayloadManager.empty_payload(node_name=self.name, node_type='process', task='classify', data_kind='table')
+        saved_file_path = self._resolve_saved_file_path(saved_filename)
+        item = PayloadManager.make_item(file_path=saved_file_path, orange_table=result_table, dataframe=result_df, sheet_name='', role='main', meta={'widget': self.name, 'name': self.wellname, 'classlists': list(self.classlists), 'reverse': self.reverse, 'labeling': self.labeling, 'dictnames': dict(self.dictnames)})
+        output_payload = PayloadManager.replace_items(output_payload, [item], data_kind='table')
+        output_payload = PayloadManager.set_result(output_payload, orange_table=result_table, dataframe=result_df, extra={'saved_file_name': saved_filename, 'saved_file_path': saved_file_path})
+        output_payload = PayloadManager.update_context(output_payload, name=self.wellname, classlists=list(self.classlists), reverse=self.reverse, labeling=self.labeling, dictnames=dict(self.dictnames), labelsize0=self.labelsize0, fontsize0=self.fontsize0, point_size=self.point_size, porpss=self.porpss)
+        output_payload['legacy'].update({'data_list': [result_df]})
+        return output_payload
 
     def read(self):
         """读取数据方法"""
@@ -228,10 +299,10 @@ class Widget(OWWidget):
 
         self.selectedWellName = []
         self.propertyDict = {}
-
-        # 填充属性表格
-        # self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
-
+        self.LFTDComboBox.clear()
+        self.LFTDComboBoxtable.clear()
+        self.tableWidgetLEFT.setRowCount(0)
+        self.LEFTlist = []
         self.fillprpo()
 
     #################### 读取GUI上的配置 ####################

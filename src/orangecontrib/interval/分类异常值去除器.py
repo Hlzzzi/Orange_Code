@@ -8,6 +8,8 @@ from Orange.data.pandas_compat import table_to_frame, table_from_frame
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import OWWidget, Input, Output
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QFileDialog, QSplitter, QPushButton, QHeaderView, QTabWidget, QComboBox, QTableWidgetItem, QWidget, \
@@ -30,13 +32,14 @@ class Widget(OWWidget):
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
         data = Input("数据", list, auto_summary=False)
         dataTable = Input("数据表格", Table, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
     State_colsAttr = []
     State_colAll = []  # 列表元素：每个文件对应的全选框的选取状态（T/F）
     waitdata = []
-    
+
     selectedWellName: list = None  # 选中的井名列表
     currentWellNameCol_YLD: str = None  # 压裂段井名索引
     currentWellNameCol_WDZ: str = None  # 微地震井名索引
@@ -46,18 +49,29 @@ class Widget(OWWidget):
     selected_method = None
     hh = None
     litho = '岩性'
+    input_payload = None
+    payload_file_names = None
+    payload_file_paths = None
 
+    def _coerce_to_dataframe(self, data):
+        if data is None:
+            return None
+
+        obj = data[0] if isinstance(data, list) and len(data) > 0 else data
+
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+        elif isinstance(obj, pd.DataFrame):
+            return obj.copy()
+
+        return None
 
     @Inputs.data
     def set_data(self, data):
         if data:
-
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.data: pd.DataFrame = df
-            elif isinstance(data[0], pd.DataFrame):
-                self.data: pd.DataFrame = data[0]
+            self.data = self._coerce_to_dataframe(data)
             self.read()
         else:
             self.data = None
@@ -65,16 +79,55 @@ class Widget(OWWidget):
     @Inputs.dataTable
     def set_dataTable(self, data):
         if data:
-            self.data: pd.DataFrame = table_to_frame(data)
+            self.data = table_to_frame(data)
             self.read()
         else:
             self.data = None
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            self.payload_file_names = []
+            self.payload_file_paths = []
+            self.data = None
+            return
+
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="clean",
+            task="remove_outlier",
+            data_kind="table_batch",
+        )
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
+        self._apply_payload_input(self.input_payload)
+
+    def _apply_payload_input(self, payload):
+        self.payload_file_names = PayloadManager.get_file_names(payload)
+        self.payload_file_paths = PayloadManager.get_file_paths(payload)
+
+        primary_df = PayloadManager.get_single_dataframe(payload)
+        primary_table = PayloadManager.get_single_table(payload)
+
+        if primary_df is not None:
+            self.data = primary_df.copy()
+        elif primary_table is not None:
+            df = table_to_frame(primary_table)
+            self.merge_metas(primary_table, df)
+            self.data = df
+        else:
+            self.data = None
+
+        if self.data is not None:
+            self.read()
 
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
         table = Output("数据(Data)", Table, auto_summary=False)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
-        path = Output("路径", str,auto_summary=False)  # 输出路径
+        path = Output("路径", str, auto_summary=False)  # 输出路径
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -130,29 +183,40 @@ class Widget(OWWidget):
             self.warning('请先输入数据')
             return
 
-        # 执行
-        try:
-            result_df = self.data[self.data[self.clumN].isin(self.nn)]
-            result = self.getnames(result_df, lognames=self.lognames,
-                                   litho=self.litho, error_type=self.selected_method)
-        except Exception as e:
-            self.warning("请选择目标属性和特征属性",str(e))
-            print("请选择目标属性和特征属性",str(e))
+        if not self.clumN:
+            self.warning('请先选择分类列')
             return
-        print('当前执行的方法是:', self.selected_method)
 
-        # 保存
-        filename = self.save(result)
-        result.to_excel("./FLYCZQCQ.xlsx", index=False)
-        df_result = pd.read_excel("./FLYCZQCQ.xlsx")
+        if not self.nn:
+            self.warning('请先勾选要处理的类别')
+            return
 
+        if not self.lognames:
+            self.warning('请先设置特征属性')
+            return
 
-        # 发送
-        self.Outputs.table.send(table_from_frame(df_result))
-        self.Outputs.data.send([df_result])
-        self.Outputs.path.send('./FLYCZQCQ.xlsx')
+        if not self.litho:
+            self.warning('请先设置目标属性')
+            return
 
-        # self.Outputs.raw.send({'maindata': df_result, 'target': [], 'future': [], 'filename': filename})
+        if not self.selected_method:
+            self.warning('请先选择异常值去除方法')
+            return
+
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_outlier_task,
+            self._on_run_finished,
+            data=self.data.copy(),
+            clumN=self.clumN,
+            nn=list(self.nn),
+            lognames=list(self.lognames),
+            litho=self.litho,
+            error_type=self.selected_method,
+        )
+
+        if not started:
+            self.warning("当前已有任务在运行，请稍后再试")
 
     def read(self):
         """读取数据方法"""
@@ -161,14 +225,26 @@ class Widget(OWWidget):
 
         self.selectedWellName = []
         self.propertyDict = {}
+        self.lognames = []
+        self.litho = '岩性'
+        self.result = None
+        self.hh = None
 
-        # 填充属性表格
+        self.ddf = pd.DataFrame()
+        self.header_combo_box.clear()
+        self.leftBottomTable.setRowCount(0)
+        self.label_content_mapping.clear()
+        self.nn = []
+
         self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
 
-        self.header_combo_box.addItems(self.ddf.columns)
-        self.fillnametable()
+        if not self.ddf.empty:
+            self.header_combo_box.addItems(self.ddf.columns.tolist())
+            if self.header_combo_box.count() > 0:
+                self.update_column_data(self.header_combo_box.currentText())
+        else:
+            self.namedata = pd.DataFrame(columns=['内容', 'Count'])
 
-        # 寻找井名索引
         self.currentWellNameCol_YLD = None
         YLDCols: list = self.data.columns.tolist()
         for col in YLDCols:
@@ -176,26 +252,32 @@ class Widget(OWWidget):
                 self.currentWellNameCol_YLD = col
                 break
         self.currentWellNameCol_WDZ = None
-        # 填充井名表格
         self.tryFillNameTable()
 
     #################### 读取GUI上的配置 ####################
     lognames = []
-    def ignore_function(self,text,prop):
-        # 执行 '忽略' 选项后的处理逻辑
-        # print("忽略选项被选择，执行相应的函数")
+
+    def ignore_function(self, text, prop):
         if text == '忽略':
-            print("忽略选项被选择，执行相应的函数",prop)
-            columns = prop
-            if self.data.index.duplicated().any():
-                self.data.reset_index(drop=True, inplace=True)
-            self.data = self.data.drop(columns=columns)
+            print("忽略选项被选择，执行相应的函数", prop)
+            if self.data is not None and prop in self.data.columns:
+                if self.data.index.duplicated().any():
+                    self.data.reset_index(drop=True, inplace=True)
+                self.data = self.data.drop(columns=prop)
         elif text == '目标':
             self.litho = prop
             print("目标选项被选择，执行相应的函数", prop)
         elif text == '特征':
-            self.lognames.append(prop)
+            if prop not in self.lognames:
+                self.lognames.append(prop)
             print("特征选项被选择，执行相应的函数", self.lognames)
+
+    def _sync_runtime_param_from_auto_detect(self, prop, value_type, func_type):
+        if func_type == '目标':
+            self.litho = prop
+        elif func_type == '特征':
+            if prop not in self.lognames:
+                self.lognames.append(prop)
 
     #################### 一些GUI操作方法 ####################
     def fillPropTable(self, data: pd.DataFrame, tableName: str, table: QTableWidget, typeList: list,
@@ -217,8 +299,6 @@ class Widget(OWWidget):
                 self.propertyDict[tableName][prop]['type'] = typeList[2]
             elif str(data[prop].dtype) in self.NumType:  # 设置数值类型
                 self.propertyDict[tableName][prop]['type'] = typeList[0]
-
-
 
             comboBox1 = QComboBox()
             comboBox1.addItems(typeList)
@@ -255,7 +335,6 @@ class Widget(OWWidget):
             elif prop.lower() in self.space_alias_z:  # 设置z索引
                 self.propertyDict[tableName][prop]['funcType'] = funcTypeList[11]
 
-
             comboBox = QComboBox()
             comboBox.addItems(funcTypeList)
             comboBox.setCurrentText(self.propertyDict[tableName][prop]['funcType'])
@@ -263,6 +342,12 @@ class Widget(OWWidget):
             # 连接 'currentTextChanged' 信号到槽函数
             comboBox.currentTextChanged.connect(lambda text, prop=prop: self.ignore_function(text, prop))
             table.setCellWidget(i, 2, comboBox)
+
+            self._sync_runtime_param_from_auto_detect(
+                prop=prop,
+                value_type=self.propertyDict[tableName][prop]['type'],
+                func_type=self.propertyDict[tableName][prop]['funcType']
+            )
 
             if self.propertyDict[tableName][prop]['type'] == typeList[2]:  # 文本类型
                 self.ddf[prop] = data[prop]
@@ -389,18 +474,17 @@ class Widget(OWWidget):
             self.fillnametableTTO()
 
     def checkbox_changed(self, state, row):
-        # 检查复选框是否被选中
+        wellname_value = self.leftBottomTable.item(row, 1).data(Qt.UserRole)
+
         if state == Qt.Checked:
-            # 获取 'wellname' 列的值
-            wellname_value = self.leftBottomTable.item(row, 1).data(Qt.UserRole)
-            self.nn.append(wellname_value)
+            if wellname_value not in self.nn:
+                self.nn.append(wellname_value)
             print(f"选中的内容：{wellname_value}")
             print(self.nn)
 
         if state == Qt.Unchecked:
-            # 获取 'wellname' 列的值
-            wellname_value = self.leftBottomTable.item(row, 1).data(Qt.UserRole)
-            self.nn.remove(wellname_value)
+            if wellname_value in self.nn:
+                self.nn.remove(wellname_value)
             print(f"取消选中的内容：{wellname_value}")
             print(self.nn)
 
@@ -464,6 +548,9 @@ class Widget(OWWidget):
         self.sort_order_ascending = False  # 用于跟踪排序顺序的变量
         self.label_content_mapping = {}
         self.clumN = None
+        self.input_payload = None
+        self.payload_file_names = []
+        self.payload_file_paths = []
 
         layout = QGridLayout()
         layout.setSpacing(3)
@@ -584,6 +671,144 @@ class Widget(OWWidget):
         hLayout.addWidget(saveRadio)
         self.save_radio = 2
         self.save_path = None
+
+    def _run_outlier_task(
+            self,
+            *,
+            data,
+            clumN,
+            nn,
+            lognames,
+            litho,
+            error_type,
+            setProgress=None,
+            isCancelled=None
+    ):
+        if setProgress:
+            setProgress(5)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True}
+
+        result_df = data[data[clumN].isin(nn)].copy()
+
+        self.result = None
+        self.hh = None
+
+        result = self.getnames(
+            result_df,
+            lognames=lognames,
+            litho=litho,
+            error_type=error_type
+        )
+
+        if result is None:
+            result = pd.DataFrame()
+
+        if setProgress:
+            setProgress(90)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True}
+
+        return {
+            "cancelled": False,
+            "result_df": result
+        }
+
+    def _on_run_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            self.warning("请选择目标属性和特征属性", str(e))
+            print("请选择目标属性和特征属性", str(e))
+            return
+
+        if not task_result or task_result.get("cancelled"):
+            self.warning("任务已取消")
+            return
+
+        result = task_result.get("result_df")
+        if result is None or result.empty:
+            self.error("未生成结果数据")
+            return
+
+        filename = self.save(result)
+        fixed_path = "./FLYCZQCQ.xlsx"
+        result.to_excel(fixed_path, index=False)
+        df_result = pd.read_excel(fixed_path)
+        result_table = table_from_frame(df_result)
+
+        self.Outputs.table.send(result_table)
+        self.Outputs.data.send([df_result])
+        self.Outputs.path.send(fixed_path)
+
+        output_payload = self.build_output_payload(
+            result_df=df_result,
+            result_table=result_table,
+            saved_filename=filename,
+            saved_file_path=fixed_path
+        )
+        self.Outputs.payload.send(output_payload)
+
+    def build_output_payload(self, *, result_df, result_table, saved_filename, saved_file_path):
+        if self.input_payload is not None:
+            output_payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            output_payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="clean",
+                task="remove_outlier",
+                data_kind="table"
+            )
+
+        item = PayloadManager.make_item(
+            file_path=saved_file_path,
+            orange_table=result_table,
+            dataframe=result_df,
+            sheet_name="",
+            role="main",
+            meta={
+                "widget": self.name,
+                "error_type": self.selected_method,
+                "class_column": self.clumN,
+                "selected_labels": list(self.nn),
+                "litho": self.litho,
+                "lognames": list(self.lognames),
+            }
+        )
+
+        output_payload = PayloadManager.replace_items(
+            output_payload,
+            [item],
+            data_kind="table"
+        )
+
+        output_payload = PayloadManager.set_result(
+            output_payload,
+            orange_table=result_table,
+            dataframe=result_df,
+            extra={
+                "saved_file_name": saved_filename,
+                "saved_file_path": saved_file_path,
+            }
+        )
+
+        output_payload = PayloadManager.update_context(
+            output_payload,
+            class_column=self.clumN,
+            selected_labels=list(self.nn),
+            litho=self.litho,
+            lognames=list(self.lognames),
+            error_type=self.selected_method,
+        )
+
+        output_payload["legacy"].update({
+            "data_list": [result_df],
+            "file_path": saved_file_path,
+        })
+
+        return output_payload
 
     def clear_all_filters(self):
         while self.filter_layout.count() > 0:
