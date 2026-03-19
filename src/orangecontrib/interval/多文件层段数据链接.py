@@ -15,6 +15,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QCheckBox, QAbstractItemView
 
 from .pkg import MyWidget
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 class cengduan(OWWidget):
@@ -37,6 +39,10 @@ class cengduan(OWWidget):
         # 钻测录数据文件名：通过修改后（增加了文件名list输出）的【测井数据加载】控件载入
         dataZCL_names = Input("钻测录井名", list, auto_summary=False)
 
+        # 新增标准 payload 双输入
+        payloadYCZ = Input("目标类数据Payload", dict, auto_summary=False)
+        payloadZCL = Input("钻测录数据Payload", dict, auto_summary=False)
+
     dataYCZ: list = None
     dataZCL: list = None  # list[pd.DataFrame]
     dataZCL_names: list = None
@@ -46,42 +52,51 @@ class cengduan(OWWidget):
     currentWellNameCol: str = None  # 井名索引
     propertyDict: dict = None  # 属性字典
 
+    payloadYCZ_cache = None
+    payloadZCL_cache = None
+
+    def _coerce_first_df(self, data):
+        if not data:
+            return None
+
+        obj = data[0]
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+        elif isinstance(obj, pd.DataFrame):
+            return obj.copy()
+
+        return None
+
+    def _coerce_df_list(self, data):
+        result = []
+        if not data:
+            return result
+
+        for obj in data:
+            if isinstance(obj, Table):
+                df = table_to_frame(obj)
+                self.merge_metas(obj, df)
+                result.append(df)
+            elif isinstance(obj, pd.DataFrame):
+                result.append(obj.copy())
+        return result
+
     @Inputs.dataYCZ
     def set_dataYCZ(self, data):
-
         if data:
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.dataYCZ: pd.DataFrame = df
-                self.original_dataYCZ = data
-                # print('这是YCZ原始数据',self.original_dataYCZ)
-                # print('这是YCZ数据', self.dataYCZ)
-            elif isinstance(data[0], pd.DataFrame):
-                self.dataYCZ: pd.DataFrame = data[0]
-                self.original_dataYCZ = data
-                # print('这是YCZ原始数据',self.original_dataYCZ)
-                # print('这是YCZ数据', self.dataYCZ)
+            self.dataYCZ = self._coerce_first_df(data)
+            self.original_dataYCZ = data
             self.read()
         else:
             self.dataYCZ = None
 
     @Inputs.dataZCL
     def set_dataZCL(self, data):
-
         if data:
-            self.dataZCL: list = []
-            self.original_dataZCL = []  # 保存原始数据列表
-            for table in data:
-                df: pd.DataFrame = None
-                if isinstance(table, Table):
-                    df: pd.DataFrame = table_to_frame(table)  # 将输入的Table转换为DataFrame
-                    self.merge_metas(table, df)  # 防止meta数据丢失
-                elif isinstance(table, pd.DataFrame):
-                    df: pd.DataFrame = table
-                self.original_dataZCL.append(table)
-                # print('这是ZCL原始数据',self.original_dataZCL)
-                self.dataZCL.append(df)
+            self.dataZCL = self._coerce_df_list(data)
+            self.original_dataZCL = data
             self.read()
         else:
             self.dataZCL = None
@@ -89,10 +104,74 @@ class cengduan(OWWidget):
     @Inputs.dataZCL_names
     def set_dataZCL_names(self, data):
         if data:
-            self.dataZCL_names: list = data
+            self.dataZCL_names = list(data)
             self.read()
         else:
             self.dataZCL_names = None
+
+    @Inputs.payloadYCZ
+    def set_payloadYCZ(self, payload):
+        if not payload:
+            self.payloadYCZ_cache = None
+            return
+
+        self.payloadYCZ_cache = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="merge",
+            task="link",
+            data_kind="linked_table",
+        )
+
+        df = PayloadManager.get_single_dataframe(self.payloadYCZ_cache)
+        if df is None:
+            table = PayloadManager.get_single_table(self.payloadYCZ_cache)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+
+        self.dataYCZ = df
+        self.read()
+
+    @Inputs.payloadZCL
+    def set_payloadZCL(self, payload):
+        if not payload:
+            self.payloadZCL_cache = None
+            self.dataZCL = None
+            self.dataZCL_names = None
+            self.original_dataZCL = []
+            return
+
+        self.payloadZCL_cache = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="merge",
+            task="link",
+            data_kind="linked_table",
+        )
+
+        dfs = PayloadManager.get_dataframes(self.payloadZCL_cache)
+        tables = PayloadManager.get_tables(self.payloadZCL_cache)
+
+        self.dataZCL = []
+        self.original_dataZCL = []
+
+        if dfs:
+            for df in dfs:
+                self.dataZCL.append(df.copy())
+                self.original_dataZCL.append(df.copy())
+        elif tables:
+            for table in tables:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+                self.dataZCL.append(df)
+                self.original_dataZCL.append(table)
+        else:
+            self.dataZCL = []
+            self.original_dataZCL = []
+
+        self.dataZCL_names = PayloadManager.get_file_names(self.payloadZCL_cache)
+        self.read()
 
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
@@ -100,6 +179,8 @@ class cengduan(OWWidget):
         # table = Output("数据表", Orange.data.Table)
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
         raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
+
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -156,8 +237,46 @@ class cengduan(OWWidget):
     #         columns = prop
     #         self.dataZCL = self.dataZCL.drop(columns=columns)
 
+    # def run(self):
+    #     """【核心入口方法】发送按钮回调"""
+    #     if self.dataYCZ is None or self.dataZCL is None or self.dataZCL_names is None:
+    #         self.warning('请先输入数据')
+    #         return
+    #
+    #     if self.currentWellNameCol is None:
+    #         self.warning('油层组数据未设置井名索引')
+    #         return
+    #
+    #     self.clear_messages()
+    #
+    #     DFZCL = self.tzZCL()
+    #     print('这是钻测录',DFZCL)
+    #     DFYCZ = self.dataYCZ
+    #     print('这是油层组',DFYCZ)
+    #
+    #     print(self.JM, self.DingS, self.Dis, self.Mubiao)
+    #
+    #     if self.Mubiao is None:
+    #         self.warning('请设置目标属性')
+    #         return
+    #
+    #     else:
+    #         # 执行
+    #         result = self.lithology_annotation( DFYCZ = DFYCZ , DFZCL = DFZCL ,YZC_wellname=self.JM, litho_top=self.DingS,
+    #                          litho_bot=self.Dis,
+    #                          litho_name=self.Mubiao,  logdepthindex='depth')
+    #
+    #
+    #
+    #         # 保存
+    #         self.save(result)
+    #
+    #         # 发送
+    #         self.Outputs.table.send(table_from_frame(result))
+    #         self.Outputs.data.send([result])
+    #         self.Outputs.raw.send({'maindata': result, 'target': [], 'future': []})
+
     def run(self):
-        """【核心入口方法】发送按钮回调"""
         if self.dataYCZ is None or self.dataZCL is None or self.dataZCL_names is None:
             self.warning('请先输入数据')
             return
@@ -166,34 +285,187 @@ class cengduan(OWWidget):
             self.warning('油层组数据未设置井名索引')
             return
 
-        self.clear_messages()
-
-        DFZCL = self.tzZCL()
-        print('这是钻测录',DFZCL)
-        DFYCZ = self.dataYCZ
-        print('这是油层组',DFYCZ)
-
-        print(self.JM, self.DingS, self.Dis, self.Mubiao)
-
         if self.Mubiao is None:
             self.warning('请设置目标属性')
             return
 
+        self.clear_messages()
+
+        DFZCL = self.tzZCL()
+        DFYCZ = self.dataYCZ
+
+        print(self.JM, self.DingS, self.Dis, self.Mubiao)
+
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_link_task,
+            self._on_run_finished,
+            DFYCZ=DFYCZ.copy(),
+            DFZCL=DFZCL,
+            YZC_wellname=self.JM,
+            litho_top=self.DingS,
+            litho_bot=self.Dis,
+            litho_name=self.Mubiao,
+            logdepthindex='depth',
+        )
+
+        if not started:
+            self.warning("当前已有任务在运行，请稍后再试")
+
+    def _run_link_task(
+        self,
+        *,
+        DFYCZ,
+        DFZCL,
+        YZC_wellname,
+        litho_top,
+        litho_bot,
+        litho_name,
+        logdepthindex,
+        setProgress=None,
+        isCancelled=None
+    ):
+        if setProgress:
+            setProgress(5)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True}
+
+        result = self.lithology_annotation(
+            DFYCZ=DFYCZ,
+            DFZCL=DFZCL,
+            YZC_wellname=YZC_wellname,
+            litho_top=litho_top,
+            litho_bot=litho_bot,
+            litho_name=litho_name,
+            logdepthindex=logdepthindex
+        )
+
+        if setProgress:
+            setProgress(90)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True}
+
+        return {
+            "cancelled": False,
+            "result_df": result
+        }
+
+    def _on_run_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            print(e)
+            self.error("多文件层段数据链接运行失败，请检查井名列、顶底深和目标列设置")
+            return
+
+        if not task_result or task_result.get("cancelled"):
+            self.warning("任务已取消")
+            return
+
+        result = task_result.get("result_df")
+        if result is None or result.empty:
+            self.error("未生成结果数据")
+            return
+
+        filename = self.save(result)
+        result_table = table_from_frame(result)
+
+        self.Outputs.table.send(result_table)
+        self.Outputs.data.send([result])
+        self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
+
+        output_payload = self.build_output_payload(
+            result_df=result,
+            result_table=result_table,
+            saved_filename=filename
+        )
+        self.Outputs.payload.send(output_payload)
+
+    def _resolve_saved_file_path(self, filename: str) -> str:
+        if not filename:
+            return ""
+
+        outputPath = self.default_output_path + self.output_super_folder
+        if self.save_radio == 0:
+            return os.path.join(outputPath, filename)
+        elif self.save_radio == 1 and self.save_path:
+            return os.path.join(self.save_path, filename)
+        return ""
+
+    def build_output_payload(self, *, result_df, result_table, saved_filename):
+        input_payloads = {}
+        if self.payloadYCZ_cache is not None:
+            input_payloads["target"] = self.payloadYCZ_cache
+        if self.payloadZCL_cache is not None:
+            input_payloads["zcl"] = self.payloadZCL_cache
+
+        if input_payloads:
+            output_payload = PayloadManager.merge_payloads(
+                node_name=self.name,
+                input_payloads=input_payloads,
+                node_type="merge",
+                task="link",
+                data_kind="linked_table"
+            )
         else:
-            # 执行
-            result = self.lithology_annotation( DFYCZ = DFYCZ , DFZCL = DFZCL ,YZC_wellname=self.JM, litho_top=self.DingS,
-                             litho_bot=self.Dis,
-                             litho_name=self.Mubiao,  logdepthindex='depth')
+            output_payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="merge",
+                task="link",
+                data_kind="linked_table"
+            )
 
+        saved_file_path = self._resolve_saved_file_path(saved_filename)
 
+        item = PayloadManager.make_item(
+            file_path=saved_file_path,
+            orange_table=result_table,
+            dataframe=result_df,
+            sheet_name="",
+            role="main",
+            meta={
+                "widget": self.name,
+                "section_wellname": self.JM,
+                "section_top": self.DingS,
+                "section_bot": self.Dis,
+                "litho_name": self.Mubiao,
+                "logdepthindex": "depth",
+            }
+        )
 
-            # 保存
-            self.save(result)
+        output_payload = PayloadManager.replace_items(
+            output_payload,
+            [item],
+            data_kind="linked_table"
+        )
 
-            # 发送
-            self.Outputs.table.send(table_from_frame(result))
-            self.Outputs.data.send([result])
-            self.Outputs.raw.send({'maindata': result, 'target': [], 'future': []})
+        output_payload = PayloadManager.set_result(
+            output_payload,
+            orange_table=result_table,
+            dataframe=result_df,
+            extra={
+                "saved_file_name": saved_filename,
+                "saved_file_path": saved_file_path,
+            }
+        )
+
+        output_payload = PayloadManager.update_context(
+            output_payload,
+            section_wellname=self.JM,
+            section_top=self.DingS,
+            section_bot=self.Dis,
+            litho_name=self.Mubiao,
+            zcl_names=list(self.dataZCL_names) if self.dataZCL_names else [],
+        )
+
+        output_payload["legacy"].update({
+            "data_list": [result_df],
+            "data_dict": {'maindata': result_df, 'target': [], 'future': [], 'filename': saved_filename}
+        })
+
+        return output_payload
 
 
 
@@ -344,10 +616,8 @@ class cengduan(OWWidget):
 
             if text == '忽略':
                 print("忽略选项被选择，执行相应的函数", prop)
-                columns = prop
-                if self.data.index.duplicated().any():
-                    self.data.reset_index(drop=True, inplace=True)
-                self.data = self.data.drop(columns=columns)
+                # 这里不直接改原始数据结构，避免误删当前层段/单表对象
+                return
             elif text == '井名索引':
                 print("井名索引选项被选择，执行相应的函数", prop)
                 self.JM = prop
@@ -475,11 +745,12 @@ class cengduan(OWWidget):
                 self.fillNameTable(self.dataYCZ[prop].unique().tolist())
 
     def wellSelected(self, state, wellname):
-        """井名选中状态改变回调"""
         if state == Qt.Checked:
-            self.selectedWellName.append(wellname)
+            if wellname not in self.selectedWellName:
+                self.selectedWellName.append(wellname)
         else:
-            self.selectedWellName.remove(wellname)
+            if wellname in self.selectedWellName:
+                self.selectedWellName.remove(wellname)
 
     def selectAllCallback(self):
         """全选按钮回调方法"""
@@ -527,6 +798,8 @@ class cengduan(OWWidget):
         super().__init__()
         self.data = None
         pd.set_option('mode.chained_assignment', None)  # TODO: 关闭代码中所有SettingWithCopyWarning
+        self.original_dataYCZ = None
+        self.original_dataZCL = []
 
         layout = QGridLayout()
         layout.setSpacing(3)
@@ -621,16 +894,22 @@ class cengduan(OWWidget):
     ##调整数据
     def tzZCL(self):
         DFZCL = {}
-        data1 = []
-        for wj in range(len(self.dataZCL_names)):
 
-            data1.append(self.original_dataZCL[wj])
+        if self.dataZCL is None or self.dataZCL_names is None:
+            return DFZCL
 
-        for x in range(len(data1)):
-            dfsj = pd.DataFrame(data1[x])
-            dfsj.columns = ['depth', 'GR', 'SP', 'LLD', 'MSFL', 'LLS', 'AC', 'DEN', 'CNL']
+        for x in range(min(len(self.dataZCL), len(self.dataZCL_names))):
+            dfsj = self.dataZCL[x].copy()
+
+            # 兼容旧 LAS/表格情况：如果列名不是标准 9 列，但列数刚好是 9，则补成旧标准列名
+            if len(dfsj.columns) == 9:
+                expected_cols = ['depth', 'GR', 'SP', 'LLD', 'MSFL', 'LLS', 'AC', 'DEN', 'CNL']
+                current_cols = [str(c) for c in dfsj.columns]
+                if current_cols != expected_cols:
+                    dfsj.columns = expected_cols
+
             DFZCL[self.dataZCL_names[x]] = dfsj
-        # print(DFZCL)
+
         return DFZCL
 
 

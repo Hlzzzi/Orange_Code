@@ -249,7 +249,7 @@ def Jaccard_1D(data, name_x, name_y, key_1, key_2, k):
 def features_choice_algorithm(data, X_names, target, oternames=[], k=10, label11='正常', label22='套变',
                               SI_type='Jaccard1D', indextype='相异度系数', modeltype='特征选择数', select_number=10,
                               cutoff=0.5, figtypes=['特征重叠度排序图'], figurename='二分类数据特征相似度排序条形图',
-                              savepath='泸州套变数据可视化分析', savemode='.xlsx'):
+                              savepath='泸州套变数据可视化分析', savemode='.xlsx', show_fig=True):
     outpath_DD = join_path(savepath, figurename)
     outpath_figure = join_path(outpath_DD, '特征图')
     outpath_table1 = join_path(outpath_DD, '特征排序表')
@@ -313,7 +313,10 @@ def features_choice_algorithm(data, X_names, target, oternames=[], k=10, label11
                 plt.xlabel(SI_type, fontsize=25)
                 plt.savefig(outpath_figure + str(target) + str(SI_type) + indextype + '排序分析图.png', dpi=300,
                             bbox_inches='tight')
-                plt.show()
+                if show_fig:
+                    plt.show()
+                else:
+                    plt.close()
             elif figtype == '特征归一化排序图':
                 plt.figure(figsize=(8, max(12, len(result))))
                 y_data = result[SI_type + '归一化'][::-1]
@@ -326,7 +329,10 @@ def features_choice_algorithm(data, X_names, target, oternames=[], k=10, label11
                 plt.xlabel(SI_type, fontsize=25)
                 plt.savefig(outpath_figure + str(target) + str(SI_type) + indextype + '特征归一化排序分析图.png', dpi=300,
                             bbox_inches='tight')
-                plt.show()
+                if show_fig:
+                    plt.show()
+                else:
+                    plt.close()
             elif figtype == '特征贡献率排序图':
                 plt.figure(figsize=(8, max(12, len(result))))
                 y_data = result[SI_type + '贡献率'][::-1]
@@ -339,7 +345,10 @@ def features_choice_algorithm(data, X_names, target, oternames=[], k=10, label11
                 plt.xlabel(SI_type, fontsize=25)
                 plt.savefig(outpath_figure + str(target) + str(SI_type) + indextype + '特征贡献率排序分析图.png', dpi=300,
                             bbox_inches='tight')
-                plt.show()
+                if show_fig:
+                    plt.show()
+                else:
+                    plt.close()
             elif figtype == '二分类优选特征频率直方图':
                 classess = [label11, label22]
                 fig = plt.figure(figsize=(len(listname) * 4, (len(classess) + 1) * 4))
@@ -369,7 +378,10 @@ def features_choice_algorithm(data, X_names, target, oternames=[], k=10, label11
                 plt.tight_layout()
                 plt.savefig(outpath_figure + str(target) + '二分类优选特征频率直方图.png', dpi=300,
                             bbox_inches='tight')
-                plt.show()
+                if show_fig:
+                    plt.show()
+                else:
+                    plt.close()
     return result, resultdata
 
 # input_path = r"D:\微信下载\WeChat Files\wxid_68hl91pn8bse22\FileStorage\File\2024-09\压裂套变数据大表.xlsx"
