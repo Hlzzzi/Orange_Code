@@ -16,6 +16,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel,QAbstractItemView
 
 from .pkg import 多文件合并 as Fee
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 class Widget(OWWidget):
     # Widget needs a name, or it is considered an abstract widget
     # and not shown in the menu.
@@ -43,13 +45,76 @@ class Widget(OWWidget):
     namedata = None
     keynames = None
 
+    input_payload = None
+    payload_items = []
+    payload_file_names = []
+    payload_file_paths = []
+
+    class Inputs:
+        payload = Input("payload", dict, auto_summary=False)
 
 
-    class Outputs:  # TODO:输出
-        # if there are two or more outputs, default=True marks the default output
-        table = Output("数据(Data)", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
-        data = Output("数据List", list, auto_summary=False)  # 输出给控件
-        # raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            self.payload_items = []
+            self.payload_file_names = []
+            self.payload_file_paths = []
+            return
+
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="process",
+            task="merge",
+            data_kind="table_batch",
+        )
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
+        self._apply_payload_input(self.input_payload)
+
+    def _resolve_payload_folder(self, payload):
+        folder = payload.get("context", {}).get("source_folder", "")
+        if folder:
+            return folder
+
+        paths = PayloadManager.get_file_paths(payload)
+        if paths:
+            first_path = paths[0]
+            if os.path.isdir(first_path):
+                return first_path
+            return os.path.dirname(first_path)
+
+        return ""
+
+    def _apply_payload_input(self, payload):
+        self.payload_items = payload.get("items", [])
+        self.payload_file_names = PayloadManager.get_file_names(payload)
+        self.payload_file_paths = PayloadManager.get_file_paths(payload)
+
+        self.file_list = list(self.payload_file_names)
+        self.file_list_change = list(self.payload_file_names)
+        self.input_path = self._resolve_payload_folder(payload)
+        self.payload_df_map = {}
+
+        for item in self.payload_items:
+            file_name = item.get("file_name", "")
+            df = item.get("dataframe")
+            table = item.get("orange_table")
+            if df is None and table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+            if df is not None and file_name:
+                self.payload_df_map[file_name] = df.copy()
+
+        self._load_payload_records_to_ui()
+
+
+
+    class Outputs:
+        table = Output("数据(Data)", Table, default=True)
+        data = Output("数据List", list, auto_summary=False)
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -97,33 +162,259 @@ class Widget(OWWidget):
     TextType = ['object', 'category']
     NumType = ['int64', 'float64']
 
-
-
     def run(self):
-        """【核心入口方法】发送按钮回调"""
+        if not self.file_list_change:
+            self.warning('请先输入或选择文件')
+            return
 
+        if not self.keynames:
+            self.warning('请先设置关键列')
+            return
 
-        print(self.input_path,self.file_list_change,self.lognames,self.keynames)
-        result = Fee.data_join(input_path=self.input_path,flielist=self.file_list_change,lognames=self.lognames,keyname=self.keynames)
-        result = result.loc[:, ~result.T.duplicated()]
-        # 保存
-        filename = self.save(result)
+        if not self.lognames:
+            self.warning('请先选择特征列')
+            return
 
-        # 发送
-        self.Outputs.table.send(table_from_frame(result))
-        self.Outputs.data.send([result])
-        # self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
+        print(self.input_path, self.file_list_change, self.lognames, self.keynames)
 
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_merge_task,
+            self._on_run_finished,
+            input_path=self.input_path,
+            selected_files=list(self.file_list_change),
+            lognames=list(self.lognames),
+            keyname=self.keynames,
+            payload_df_map={k: v.copy() for k, v in self.payload_df_map.items()},
+        )
+
+        if not started:
+            self.warning("当前已有任务在运行，请稍后再试")
     propertyDict: dict = None  # 属性字典
     #################### 读取GUI上的配置 ####################
 
 
+
+    def _run_merge_task(
+        self,
+        *,
+        input_path,
+        selected_files,
+        lognames,
+        keyname,
+        payload_df_map,
+        setProgress=None,
+        isCancelled=None
+    ):
+        if setProgress:
+            setProgress(5)
+
+        if isCancelled and isCancelled():
+            return {"cancelled": True}
+
+        # 优先用 payload 里的 DataFrame 做合并；如果没有，再退回老算法按路径读盘
+        if payload_df_map:
+            result_list = []
+            for idx, path_name in enumerate(selected_files):
+                if isCancelled and isCancelled():
+                    return {"cancelled": True}
+
+                df = payload_df_map.get(path_name)
+                if df is None or df.empty:
+                    continue
+
+                tmp = df.copy()
+                wellname1 = os.path.splitext(path_name)[0]
+                tmp[keyname] = wellname1
+
+                for logname in lognames:
+                    if logname not in tmp.columns:
+                        tmp[logname] = 9999
+
+                result_list.append(tmp[[keyname] + lognames])
+
+                if setProgress:
+                    setProgress(5 + int((idx + 1) / max(len(selected_files), 1) * 85))
+
+            result = pd.concat(result_list, ignore_index=True) if result_list else pd.DataFrame(columns=[keyname] + lognames)
+
+        else:
+            result = Fee.data_join(
+                input_path=input_path,
+                flielist=selected_files,
+                lognames=lognames,
+                keyname=keyname
+            )
+            if setProgress:
+                setProgress(90)
+
+        result = result.loc[:, ~result.T.duplicated()]
+        return {
+            "cancelled": False,
+            "result_df": result
+        }
+
+    def _on_run_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            print(e)
+            self.error("多文件合并运行失败，请检查关键列、特征列和输入数据")
+            return
+
+        if not task_result or task_result.get("cancelled"):
+            self.warning("任务已取消")
+            return
+
+        result = task_result.get("result_df")
+        if result is None or result.empty:
+            self.error("未生成结果数据")
+            return
+
+        filename = self.save(result)
+        result_table = table_from_frame(result)
+
+        self.Outputs.table.send(result_table)
+        self.Outputs.data.send([result])
+
+        output_payload = self.build_output_payload(
+            result_df=result,
+            result_table=result_table,
+            saved_filename=filename
+        )
+        self.Outputs.payload.send(output_payload)
+
+    def _resolve_saved_file_path(self, filename: str) -> str:
+        if not filename:
+            return ""
+
+        outputPath = self.default_output_path + self.output_super_folder
+        if self.save_radio == 0:
+            return os.path.join(outputPath, filename)
+        elif self.save_radio == 1 and self.save_path:
+            return os.path.join(self.save_path, filename)
+        return ""
+
+    def build_output_payload(self, *, result_df, result_table, saved_filename):
+        if self.input_payload is not None:
+            output_payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            output_payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="process",
+                task="merge",
+                data_kind="table"
+            )
+
+        saved_file_path = self._resolve_saved_file_path(saved_filename)
+
+        item = PayloadManager.make_item(
+            file_path=saved_file_path,
+            orange_table=result_table,
+            dataframe=result_df,
+            sheet_name="",
+            role="main",
+            meta={
+                "widget": self.name,
+                "keyname": self.keynames,
+                "selected_files": list(self.file_list_change),
+                "selected_logs": list(self.lognames),
+            }
+        )
+
+        output_payload = PayloadManager.replace_items(
+            output_payload,
+            [item],
+            data_kind="table"
+        )
+
+        output_payload = PayloadManager.set_result(
+            output_payload,
+            orange_table=result_table,
+            dataframe=result_df,
+            extra={
+                "saved_file_name": saved_filename,
+                "saved_file_path": saved_file_path,
+            }
+        )
+
+        output_payload = PayloadManager.update_context(
+            output_payload,
+            source_folder=self.input_path if hasattr(self, "input_path") else "",
+            selected_files=list(self.file_list_change),
+            keyname=self.keynames,
+            selected_logs=list(self.lognames),
+        )
+
+        output_payload["legacy"].update({
+            "data_list": [result_df],
+            "data_dict": {
+                "maindata": result_df,
+                "target": [],
+                "future": [],
+                "filename": saved_filename
+            }
+        })
+
+        return output_payload
 
 
     def count_attributes(self,dataframe, attribute_column):
         # 使用 Pandas 的 groupby 和 count 方法进行统计
         counts = dataframe.groupby(attribute_column).size().reset_index(name='Count')
         return counts
+
+    def _load_payload_records_to_ui(self):
+        self.clear_layout()
+        self.lognames = []
+        self.typelist = []
+        self.DFF = pd.DataFrame()
+        self.DFF_list = []
+
+        for file_name in self.file_list:
+            checkbox = QCheckBox(file_name, self)
+            checkbox.setChecked(True)
+            checkbox.stateChanged.connect(self.checkbox_changed3)
+            self.layoutTOP.addWidget(checkbox)
+
+        if not self.file_list:
+            return
+
+        first_name = self.file_list[0]
+        first_df = self.payload_df_map.get(first_name)
+        if first_df is None or first_df.empty:
+            return
+
+        self.data = first_df.copy()
+        columns = first_df.columns.tolist()
+
+        self.leftTB.setRowCount(0)
+        self.top_table.setRowCount(0)
+        self.xlk.clear()
+
+        self.fill_table(columns, x=0)
+        self.addCOMBX(columns)
+        self.fullTpye(first_df)
+        self.fullnum_from_payload()
+
+
+    def fullnum_from_payload(self):
+        self.DFF = pd.DataFrame()
+        self.DFF_list = []
+
+        for file_name in self.file_list_change:
+            df = self.payload_df_map.get(file_name)
+            if df is not None and not df.empty:
+                self.DFF = pd.concat([self.DFF, df], ignore_index=True)
+
+        if self.DFF.empty:
+            return
+
+        column_counts = self.DFF.count()
+        for _, count in column_counts.items():
+            self.DFF_list.append(str(count))
+
+        self.fill_table(self.DFF_list, x=2)
 
     selected_column_data = None
     def update_column_data(self, column_name):
@@ -150,6 +441,14 @@ class Widget(OWWidget):
         self.sort_order_ascending = False  # 用于跟踪排序顺序的变量
         self.label_content_mapping = {}
         self.clumN = None
+        self.input_payload = None
+        self.payload_items = []
+        self.payload_file_names = []
+        self.payload_file_paths = []
+
+        self.file_list = []
+        self.file_list_change = []
+        self.payload_df_map = {}
 
         layout = QGridLayout()
         layout.setSpacing(3)
@@ -396,9 +695,10 @@ class Widget(OWWidget):
                 widget.deleteLater()
 
     typelist = []
-    def fullTpye(self,df):
-        for column_name, dtype in df.dtypes.iteritems():
-            # print(f"列名: {column_name}, 数据类型: {dtype}")
+
+    def fullTpye(self, df):
+        self.typelist = []
+        for _, dtype in df.dtypes.items():
             if dtype == 'object':
                 self.typelist.append('字符型类型')
             elif dtype == 'int64':
@@ -409,8 +709,7 @@ class Widget(OWWidget):
                 self.typelist.append('布尔类型')
             else:
                 self.typelist.append('其他类型')
-        self.fill_table(self.typelist,x=1)
-        # print('typelist::::',self.typelist)
+        self.fill_table(self.typelist, x=1)
     
     DFF_list = []
     def fullnum(self):
@@ -425,17 +724,17 @@ class Widget(OWWidget):
         print('DFFFFF',self.DFF_list)
         self.fill_table(self.DFF_list,x=2)
 
-
     def checkbox_changed3(self, state):
         checkbox = self.sender()
-        if state == 2:  # 2 represents checked state
+        if state == Qt.Checked:
             print(f"{checkbox.text()} 选中")
-            self.file_list_change.append(checkbox.text())
-            print(self.file_list_change)
+            if checkbox.text() not in self.file_list_change:
+                self.file_list_change.append(checkbox.text())
         else:
             print(f"{checkbox.text()} 取消选中")
-            self.file_list_change.remove(checkbox.text())
-            print(self.file_list_change)
+            if checkbox.text() in self.file_list_change:
+                self.file_list_change.remove(checkbox.text())
+        print(self.file_list_change)
 
     def remove_filter(self, filter_layout):
         for i in reversed(range(filter_layout.count())):
@@ -469,20 +768,34 @@ class Widget(OWWidget):
     def load_folder(self, folder_path):
         self.clear_layout()
         self.file_list = os.listdir(folder_path)
+        self.file_list_change = list(self.file_list)
+        self.lognames = []
+        self.typelist = []
+        self.DFF = pd.DataFrame()
+        self.DFF_list = []
+        self.top_table.setRowCount(0)
+        self.leftTB.setRowCount(0)
+        self.xlk.clear()
+
         for file_name in self.file_list:
             checkbox = QCheckBox(file_name, self)
-            checkbox.setChecked(True)  # 默认选中状态
-            # print(self.file_list)
+            checkbox.setChecked(True)
             checkbox.stateChanged.connect(self.checkbox_changed3)
             self.layoutTOP.addWidget(checkbox)
-        # print(self.file_list)
-        self.file_list_change = self.file_list
-        aa = self.get_column_names(folder_path=self.input_path,filename=self.file_list_change[0]).columns.tolist()
-        self.fill_table(aa,x=0)
+
+        if not self.file_list_change:
+            return
+
+        first_df = self.get_column_names(folder_path=self.input_path, filename=self.file_list_change[0])
+        if first_df is None or len(first_df.columns) == 0:
+            return
+
+        self.data = first_df
+        aa = first_df.columns.tolist()
+        self.fill_table(aa, x=0)
         self.addCOMBX(aa)
-        self.fullTpye(self.data)
+        self.fullTpye(first_df)
         self.fullnum()
-        # print(self.file_list_change)
 
 
 
