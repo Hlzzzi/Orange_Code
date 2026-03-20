@@ -15,6 +15,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QFileDialog, QSplitter, QPushButton, QHeaderView, QTabWidget, QComboBox, QTableWidgetItem, QWidget, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel
 
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 class Widget(OWWidget):
     # Widget needs a name, or it is considered an abstract widget
     # and not shown in the menu.
@@ -32,6 +34,7 @@ class Widget(OWWidget):
         data = Input("数据", list, auto_summary=False)
         # data_orange = Input("Data", Orange.data.Table , auto_summary=False)
         dataTable = Input("数据表格", Table, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -39,12 +42,13 @@ class Widget(OWWidget):
     State_colsAttr = []
     State_colAll = []  # 列表元素：每个文件对应的全选框的选取状态（T/F）
     waitdata = []
-    
+
     selectedWellName: list = None  # 选中的井名列表
     currentWellNameCol_YLD: str = None  # 压裂段井名索引
     currentWellNameCol_WDZ: str = None  # 微地震井名索引
     propertyDict: dict = None  # 属性字典
     namedata = None
+    input_payload = None
 
     @Inputs.data
     def set_data(self, data):
@@ -63,7 +67,32 @@ class Widget(OWWidget):
     @Inputs.dataTable
     def set_dataTable(self, data):
         self.data = table_to_frame(data)
+        self.input_payload = None
         self.read()
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="process",
+            task="filter",
+            data_kind="table_batch",
+        )
+
+        dfs = PayloadManager.get_dataframes(self.input_payload)
+        if dfs:
+            self.data = dfs[0]
+            self.read()
+            return
+
+        tables = PayloadManager.get_tables(self.input_payload)
+        if tables:
+            self.data = table_to_frame(tables[0])
+            self.read()
+            return
+
+        self.data = None
 
     # @Inputs.data_orange
     # def sett_data(self, data):
@@ -88,6 +117,7 @@ class Widget(OWWidget):
         table = Output("数据(Data)", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
         raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -97,7 +127,7 @@ class Widget(OWWidget):
 
     # ↓↓↓↓↓↓ 一些可以调整代码行为的全局变量 ↓↓↓↓↓↓
 
-    wellname_col_alias = ['wellname', 'well name', 'well', 'well_name', '井名' , '井号']  # 这些列名(小写)将自动视为井名列
+    wellname_col_alias = ['wellname', 'well name', 'well', 'well_name', '井名', '井号']  # 这些列名(小写)将自动视为井名列
     topdepth_col_alias = ['top', 'top depth', 'top_depth', 'topdepth', 'top_depth', '顶深']  # 这些列名(小写)将自动识别为顶深列
     botdepth_col_alias = ['bot', 'bottom', 'bottom depth', 'bottom_depth', 'botdepth', 'bot_depth',
                           '底深']  # 这些列名(小写)将自动识别为底深列
@@ -136,11 +166,11 @@ class Widget(OWWidget):
     NumType = ['int64', 'float64']
 
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
-    def ignore_function(self,text,prop):
+    def ignore_function(self, text, prop):
         # 执行 '忽略' 选项后的处理逻辑
         # print("忽略选项被选择，执行相应的函数")
         if text == '忽略':
-            print("忽略选项被选择，执行相应的函数",prop)
+            print("忽略选项被选择，执行相应的函数", prop)
             columns = prop
             if self.data.index.duplicated().any():
                 self.data.reset_index(drop=True, inplace=True)
@@ -152,17 +182,60 @@ class Widget(OWWidget):
             self.warning('请先输入数据')
             return
 
+        ThreadUtils_w.startAsyncTask(self, self._run_filter_task, self._run_done)
 
-        # 执行
-        result = self.filter_data()
+    def _run_filter_task(self, setProgress=None, isCancelled=None):
+        if setProgress is not None:
+            setProgress(1)
+        if isCancelled is not None and isCancelled():
+            return None
 
-        # 保存
+        result = self.filter_data(update_view=False)
+
+        if setProgress is not None:
+            setProgress(100)
+        return result
+
+    def _run_done(self, f):
+        try:
+            result = f.result()
+        except Exception as e:
+            self.error(str(e))
+            return
+
+        if result is None:
+            return
+
+        self.result_text.setPlainText(str(result))
         filename = self.save(result)
+        table = table_from_frame(result)
 
-        # 发送
-        self.Outputs.table.send(table_from_frame(result))
+        self.Outputs.table.send(table)
         self.Outputs.data.send([result])
         self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
+        self.Outputs.payload.send(self.build_output_payload(result, table, filename))
+
+    def build_output_payload(self, result_df, result_table, filename):
+        if self.input_payload is not None:
+            payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="process",
+                task="filter",
+                data_kind="table_batch",
+            )
+
+        item = PayloadManager.make_item(
+            orange_table=result_table,
+            dataframe=result_df,
+            role="main",
+            meta={"filename": filename, "widget": self.name},
+        )
+        payload = PayloadManager.replace_items(payload, [item], data_kind="table_batch")
+        payload = PayloadManager.set_result(payload, orange_table=result_table, dataframe=result_df)
+        payload = PayloadManager.update_context(payload, filename=filename, row_count=int(len(result_df)))
+        return payload
 
     def read(self):
         """读取数据方法"""
@@ -203,7 +276,6 @@ class Widget(OWWidget):
                     result.append(key)
         return result
 
-
     #################### 一些GUI操作方法 ####################
     def fillPropTable(self, data: pd.DataFrame, tableName: str, table: QTableWidget, typeList: list,
                       funcTypeList: list):
@@ -224,9 +296,6 @@ class Widget(OWWidget):
                 self.propertyDict[tableName][prop]['type'] = typeList[2]
             elif str(data[prop].dtype) in self.NumType:  # 设置数值类型
                 self.propertyDict[tableName][prop]['type'] = typeList[0]
-
-
-
 
             comboBox = QComboBox()
             comboBox.addItems(typeList)
@@ -272,7 +341,6 @@ class Widget(OWWidget):
             if self.propertyDict[tableName][prop]['type'] == typeList[2]:  # 文本类型
                 self.ddf[prop] = data[prop]
 
-
     def tryFillNameTable(self) -> bool:
         if self.data is None:
             return False
@@ -282,20 +350,18 @@ class Widget(OWWidget):
                            self.dataDB[self.currentWellNameCol_WDZ].unique().tolist())
         return True
 
-
-    def count_attributes(self,dataframe, attribute_column):
+    def count_attributes(self, dataframe, attribute_column):
         # 使用 Pandas 的 groupby 和 count 方法进行统计
         counts = dataframe.groupby(attribute_column).size().reset_index(name='Count')
         return counts
 
     selected_column_data = None
+
     def update_column_data(self, column_name):
         # 获取选中的列的数据
         self.selected_column_data = self.ddf[column_name]
         self.clumN = column_name
         self.fillnametable()
-
-
 
     def fillnametable(self):
 
@@ -327,16 +393,12 @@ class Widget(OWWidget):
             # 将标签和内容的关系存储到字典中
             self.label_content_mapping[row.iloc[0]] = row
 
-
             checkbox = QCheckBox()
             # checkbox.setChecked(True)  # 设置复选框的默认状态为选中
 
             checkbox.stateChanged.connect(lambda state, row=i: self.checkbox_changed(state, row))
 
             self.leftBottomTable.setCellWidget(i, 0, checkbox)
-
-
-
 
     def fillnametableTTO(self):
 
@@ -350,7 +412,6 @@ class Widget(OWWidget):
 
         self.leftBottomTable.setRowCount(0)  # 清空表格
         self.leftBottomTable.setRowCount(len(self.namedata))
-
 
         # 根据 'Count' 列的值进行降序排序
         self.namedata = self.namedata.sort_values(by='Count', ascending=True)
@@ -370,15 +431,12 @@ class Widget(OWWidget):
             # 将标签和内容的关系存储到字典中
             self.label_content_mapping[row.iloc[0]] = row
 
-
             checkbox = QCheckBox()
             # checkbox.setChecked(True)  # 设置复选框的默认状态为选中
 
             checkbox.stateChanged.connect(lambda state, row=i: self.checkbox_changed(state, row))
 
             self.leftBottomTable.setCellWidget(i, 0, checkbox)
-
-
 
         # # 启用排序
         # self.leftBottomTable.setSortingEnabled(True)
@@ -409,7 +467,6 @@ class Widget(OWWidget):
             self.nn.append(wellname_value)
             print(f"选中的内容：{wellname_value}")
             print(self.nn)
-
 
         if state == Qt.Unchecked:
             # 获取 'wellname' 列的值
@@ -459,9 +516,6 @@ class Widget(OWWidget):
                 self.currentWellNameCol_WDZ = prop
                 self.tryFillNameTable()
 
-
-
-
     def saveRadioCallback(self):
         """保存路径按钮回调方法"""
         if self.save_radio == 1:
@@ -489,8 +543,6 @@ class Widget(OWWidget):
         splitter = QSplitter(Qt.Horizontal)
         layout.addWidget(splitter, 0, 0, 1, 1)
 
-
-
         # 新增左边部分：左上（待筛选数据的属性）
         leftTopWidget = QWidget()
         leftTopLayout = QVBoxLayout()
@@ -500,7 +552,7 @@ class Widget(OWWidget):
         self.leftTopTable.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.leftTopTable.verticalHeader().hide()
         self.leftTopTable.setColumnCount(3)
-        self.leftTopTable.setHorizontalHeaderLabels(['属性名', '数值类型','作用类型'])
+        self.leftTopTable.setHorizontalHeaderLabels(['属性名', '数值类型', '作用类型'])
         splitter.addWidget(leftTopWidget)
 
         # 新增左边部分：左下（待筛选数据的属性）
@@ -523,7 +575,6 @@ class Widget(OWWidget):
         self.leftBottomTable.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.leftBottomTable.verticalHeader().hide()
 
-
         # 连接信号槽
         self.header_combo_box.currentTextChanged.connect(self.update_column_data)
 
@@ -538,7 +589,6 @@ class Widget(OWWidget):
         self.leftBottomTable.setHorizontalHeaderItem(0, QTableWidgetItem())
         leftBottomLayout.addWidget(self.selectAllCheckbox)
 
-
         splitter.addWidget(leftBottomWidget)
 
         # 新增右边部分：筛选数据
@@ -548,7 +598,6 @@ class Widget(OWWidget):
 
         filterLabel = QLabel('筛选数据:')
         rightLayout.addWidget(filterLabel)
-
 
         self.rightLayout = QVBoxLayout()
         self.filter_layout = QVBoxLayout()
@@ -588,7 +637,6 @@ class Widget(OWWidget):
         self.save_radio = 2
         self.save_path = None
 
-
     def clear_all_filters(self):
         while self.filter_layout.count() > 0:
             item = self.filter_layout.itemAt(0)
@@ -619,7 +667,6 @@ class Widget(OWWidget):
         result.to_excel(os.path.join(outputPath, filename), index=False)
         return filename
 
-
     def merge_metas(self, table: Table, df: pd.DataFrame):
         """防止meta数据丢失"""
         for i, col in enumerate(table.domain.metas):
@@ -642,7 +689,7 @@ class Widget(OWWidget):
         self.filter_layout.addLayout(new_filter_layout)
         self.user_input = column_combo.currentText()
 
-    def filter_data(self):
+    def filter_data(self, update_view=True):
         self.filters = []
 
         for i in range(self.filter_layout.count()):
@@ -685,10 +732,9 @@ class Widget(OWWidget):
         except Exception as err:
             print(err, '输入的判断条件有误，或者此判断条件下没有数据')
 
-        self.result_text.setPlainText(str(filtered_data))
+        if update_view:
+            self.result_text.setPlainText(str(filtered_data))
         return filtered_data
-
-
 
 
 if __name__ == "__main__":

@@ -17,6 +17,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel
 
 from .pkg import 事件概率差排序算法 as runmain
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 class Widget(OWWidget):
@@ -34,6 +36,7 @@ class Widget(OWWidget):
     class Inputs:  # TODO:输入
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
         datalist = Input("Dataframe数据", list, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
         # dataTable = Input("数据表格", Table, auto_summary=False)
 
     user_input = None
@@ -53,6 +56,41 @@ class Widget(OWWidget):
     file_name = None
     lognames = []
 
+
+    input_payload = None
+
+    def _coerce_to_dataframe(self, obj):
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+        if isinstance(obj, pd.DataFrame):
+            return obj
+        return None
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type='process',
+            task='analyze',
+            data_kind='table_batch',
+        )
+        items = PayloadManager.get_items(self.input_payload)
+        datalist = []
+        for item in items:
+            obj = item.get('dataframe')
+            if obj is None:
+                obj = item.get('orange_table')
+            df = self._coerce_to_dataframe(obj)
+            if df is not None:
+                datalist.append(df)
+        if datalist:
+            self.set_datalist(datalist)
     # @Inputs.data
     # def set_data(self, data):
     #     if data:
@@ -103,6 +141,7 @@ class Widget(OWWidget):
     class Outputs:  # TODO:输出
         table = Output("大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -179,35 +218,106 @@ class Widget(OWWidget):
     cut_corr = 0.5
     space = 5
 
+
+    def _run_probability_task(self, setProgress=None, isCancelled=None):
+        if self.data is None:
+            raise ValueError('请先输入数据')
+        if setProgress:
+            setProgress(1)
+        lognames = list(dict.fromkeys(self.lognames))
+        figuretypes = list(dict.fromkeys(getattr(self, 'figuretypes', []) or []))
+        if isCancelled and isCancelled():
+            raise RuntimeError('任务已取消')
+        if setProgress:
+            setProgress(30)
+        a, b = runmain.Probability_difference_algorithm(
+            self.data,
+            lognames,
+            self.target_sj,
+            modeltype=self.modetype,
+            figuretypes=figuretypes,
+            cut_corr=self.cut_corr,
+            select_number=self.select_number,
+            label11=self.label11,
+            label22=self.label22,
+        )
+        if isCancelled and isCancelled():
+            raise RuntimeError('任务已取消')
+        if setProgress:
+            setProgress(80)
+        self.save(b)
+        if setProgress:
+            setProgress(100)
+        return a, b, lognames, figuretypes
+
+    def build_output_payload(self, selected_df, result_df, lognames, figuretypes):
+        if self.input_payload is not None:
+            payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type='process',
+                task='analyze',
+                data_kind='table_batch'
+            )
+        items = [
+            PayloadManager.make_item(
+                orange_table=table_from_frame(result_df),
+                dataframe=result_df,
+                role='main',
+                meta={'kind': 'full_result'}
+            )
+        ]
+        if selected_df is not None:
+            items.append(
+                PayloadManager.make_item(
+                    orange_table=table_from_frame(selected_df),
+                    dataframe=selected_df,
+                    role='selected',
+                    meta={'kind': 'selected_result'}
+                )
+            )
+        payload = PayloadManager.replace_items(payload, items, data_kind='table_batch')
+        payload = PayloadManager.set_result(
+            payload,
+            orange_table=table_from_frame(result_df),
+            dataframe=result_df,
+            extra={
+                'selected_count': 0 if selected_df is None else len(selected_df),
+                'result_count': len(result_df),
+            }
+        )
+        payload = PayloadManager.update_context(
+            payload,
+            target=self.target_sj,
+            lognames=lognames,
+            modeltype=self.modetype,
+            figuretypes=figuretypes,
+            cut_corr=self.cut_corr,
+            select_number=self.select_number,
+            label11=self.label11,
+            label22=self.label22,
+        )
+        payload['legacy'].update({'data': [result_df]})
+        return payload
+
+    def _run_done(self, future):
+        try:
+            selected_df, result_df, lognames, figuretypes = future.result()
+        except Exception as e:
+            self.error(str(e))
+            return
+        self.Outputs.table.send(table_from_frame(result_df))
+        self.Outputs.data.send([result_df])
+        self.Outputs.payload.send(self.build_output_payload(selected_df, result_df, lognames, figuretypes))
+
     def run(self):
-        # """【核心入口方法】发送按钮回调"""
         if self.data is None:
             self.warning('请先输入数据')
             return
-
-        ##各项参数如下：
-        print('self.lognames:', self.lognames)
-        print('self.target_sj:', self.target_sj)
-
-
-        print('self.cut_corr:', self.cut_corr)
-
-        print('self.modetype:', self.modetype)
-
-        print('self.label11:', self.label11)
-        print('self.label22:', self.label22)
-
-        # a, b = Probability_difference_algorithm(data, Discrete_names, target, modeltype='特征选择数',
-        #                                         figuretypes=['事件概率分析图', '事件概率差排序图'], cut_corr=0.7,
-        #                                         select_number=3, label11='套变', label22='正常')
-        a, b = runmain.Probability_difference_algorithm(self.data, self.lognames, self.target_sj, modeltype=self.modetype,
-                                                        figuretypes=self.figuretypes, cut_corr=self.cut_corr,
-                                                        select_number=self.select_number, label11=self.label11,
-                                                        label22=self.label22)
-        self.save(b)
-
-        self.Outputs.table.send(table_from_frame(b))
-        self.Outputs.data.send([b])
+        started = ThreadUtils_w.startAsyncTask(self, self._run_probability_task, self._run_done)
+        if not started:
+            self.warning('当前已有任务正在运行，请稍后再试')
 
     def read(self):
         """读取数据方法"""

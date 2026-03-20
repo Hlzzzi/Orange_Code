@@ -15,6 +15,9 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QFileDialog, QSplitter, QPushButton, QHeaderView, QTabWidget, QComboBox, QTableWidgetItem, QWidget, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel, QAbstractItemView, QRadioButton, QButtonGroup
 
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
+
 
 class Widget(OWWidget):
     # Widget needs a name, or it is considered an abstract widget
@@ -32,6 +35,7 @@ class Widget(OWWidget):
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
         data = Input("数据列表", list, auto_summary=False)
         table = Input("数据Orange", Table, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
         # data_orange = Input("Data", Orange.data.Table, auto_summary=False)
 
     user_input = None
@@ -82,28 +86,56 @@ class Widget(OWWidget):
 
     Ture_data = None
     excel_file_path = None
+    input_payload = None
+    payload_file_names = []
+    payload_file_paths = []
+
+    def _save_config_input(self):
+        folder_path = './config_Cengduan/数据集剖分'
+        os.makedirs(folder_path, exist_ok=True)
+        self.excel_file_path = os.path.join(folder_path, '数据集剖分配置文件.xlsx')
+        print('保存配置文件到:', self.excel_file_path)
+        self.data.to_excel(self.excel_file_path, index=False)
+
+    def _coerce_to_dataframe(self, obj):
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+        if isinstance(obj, pd.DataFrame):
+            return obj.copy()
+        return None
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            self.payload_file_names = []
+            self.payload_file_paths = []
+            return
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type='process',
+            task='split',
+            data_kind='table_batch',
+        )
+        self.payload_file_names = PayloadManager.get_file_names(self.input_payload)
+        self.payload_file_paths = PayloadManager.get_file_paths(self.input_payload)
+        primary_df = PayloadManager.get_single_dataframe(self.input_payload)
+        primary_table = PayloadManager.get_single_table(self.input_payload)
+        df = primary_df if primary_df is not None else self._coerce_to_dataframe(primary_table)
+        if df is not None:
+            self.set_data([df])
 
     @Inputs.data
     def set_data(self, data):
-        self.Ture_data = data[0]
+        self.Ture_data = data[0] if data else None
         if data:
-
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.data: pd.DataFrame = df
-            elif isinstance(data[0], pd.DataFrame):
-                self.data: pd.DataFrame = data[0]
-
-            # 创建一个文件夹来保存 Excel 文件
-            folder_path = './config_Cengduan/数据集剖分'
-            os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-            # 保存到文件夹中的 Excel 文件
-            self.excel_file_path = os.path.join(folder_path, '数据集剖分配置文件.xlsx')
-            print('保存配置文件到:', self.excel_file_path)
-            self.data.to_excel(self.excel_file_path, index=False)
-            self.read()
+            self.data = self._coerce_to_dataframe(data[0])
+            if self.data is not None:
+                self._save_config_input()
+                self.read()
         else:
             self.data = None
 
@@ -113,16 +145,10 @@ class Widget(OWWidget):
     def set_data_orange(self, data):
         self.data_orange = data
         if data:
-            self.data = table_to_frame(data)
-            # 创建一个文件夹来保存 Excel 文件
-            folder_path = './config_Cengduan/数据集剖分'
-            os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-            # 保存到文件夹中的 Excel 文件
-            self.excel_file_path = os.path.join(folder_path, '数据集剖分配置文件.xlsx')
-            print('保存配置文件到:', self.excel_file_path)
-            self.data.to_excel(self.excel_file_path, index=False)
-            self.read()
+            self.data = self._coerce_to_dataframe(data)
+            if self.data is not None:
+                self._save_config_input()
+                self.read()
         else:
             self.data = None
 
@@ -134,6 +160,7 @@ class Widget(OWWidget):
         table_train = Output("训练集表格", Table, auto_summary=False)
         table_valing = Output("验证集表格", Table, auto_summary=False)
         table_test = Output("测试集表格", Table, auto_summary=False)
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -192,7 +219,30 @@ class Widget(OWWidget):
                 self.data.reset_index(drop=True, inplace=True)
             self.data = self.data.drop(columns=columns)
 
-    def run(self):
+    def _get_manual_test_groups(self):
+        if self.data is None:
+            return None
+        if not self.group_name or self.group_name == '请选择' or self.group_name not in self.data.columns:
+            return None
+        if not self.nn:
+            return None
+
+        valid_values = set(self.data[self.group_name].dropna().astype(str).unique().tolist())
+        selected_values = [str(x) for x in self.nn if str(x) in valid_values]
+        return selected_values if selected_values else None
+
+    def _run_split_task(self, setProgress=None, isCancelled=None):
+        if self.data is None:
+            raise ValueError('请先输入数据')
+        if not self.te_zheng_list:
+            raise ValueError('请先选择特征属性')
+        if not self.target:
+            raise ValueError('请先选择目标属性')
+        if not self.group_name or self.group_name == '请选择' or self.group_name not in self.data.columns:
+            raise ValueError('请先选择有效的分组列(Group name)')
+
+        manual_test_groups = self._get_manual_test_groups()
+
         print('valsize:', self.valsize)
         print('testsize:', self.testsize)
         print('depth_index:', self.depth_index)
@@ -200,58 +250,115 @@ class Widget(OWWidget):
         print('目标:', self.target)
         print('选择的井名', self.nn)
         print('Group name:', self.group_name)
+        print('手动测试分组:', manual_test_groups)
 
+        if setProgress:
+            setProgress(1)
         from .pkg import 数据集剖分_导入 as dp
+
+        split_kwargs = dict(
+            input_path=self.excel_file_path,
+            lognames=self.te_zheng_list,
+            target=self.target,
+            othernames=[self.group_name],
+            groupname=self.group_name,
+            splittype='数据集剖分',
+            valsize=self.valsize,
+            testsize=self.testsize,
+        )
+        if manual_test_groups is not None:
+            split_kwargs['test_wellnames'] = manual_test_groups
+
         if self.valsize == 0:
-            data_train, data_test, lognames, target = dp.pandasdatasplit(self.excel_file_path, self.te_zheng_list,
-                                                                         self.target,
-                                                                         othernames=[self.group_name],
-                                                                         groupname=self.group_name,
-                                                                         test_wellnames=self.nn,
-                                                                         splittype='数据集剖分', valsize=self.valsize,
-                                                                         testsize=self.testsize)
-
-            self.save(data_train, "a")
-            self.save(data_test, "b")
-
+            data_train, data_test, lognames, target = dp.pandasdatasplit(**split_kwargs)
+            self.save(data_train, 'a')
+            self.save(data_test, 'b')
             dictt = {
-                'features': self.te_zheng_list, 'target': self.target, 'depth': self.depth_index,'groupname':self.group_name
+                'features': self.te_zheng_list, 'target': self.target,
+                'depth': self.depth_index, 'groupname': self.group_name,
+                'test_wellnames': manual_test_groups or []
             }
-
-            self.Outputs.data_train.send([data_train])
-            self.Outputs.data_test.send([data_test])
-            self.Outputs.Canshu.send(dictt)
-            self.Outputs.table_train.send(table_from_frame(data_train))
-            self.Outputs.table_test.send(table_from_frame(data_test))
-
-
-
-
+            if setProgress:
+                setProgress(100)
+            return data_train, None, data_test, dictt
         else:
-            data_train, data_valing, data_test, lognames, target = dp.pandasdatasplit(self.excel_file_path,
-                                                                                      self.te_zheng_list,
-                                                                                      self.target,
-                                                                                      othernames=[self.group_name],
-                                                                                      groupname=self.group_name,
-                                                                                      test_wellnames=self.nn,
-                                                                                      splittype='数据集剖分',
-                                                                                      valsize=self.valsize,
-                                                                                      testsize=self.testsize)
-            self.save(data_train, "a")
-            self.save(data_valing, "b")
-            self.save(data_test, "c")
-
+            data_train, data_valing, data_test, lognames, target = dp.pandasdatasplit(**split_kwargs)
+            self.save(data_train, 'a')
+            self.save(data_valing, 'b')
+            self.save(data_test, 'c')
             dictt = {
-                'features': self.te_zheng_list, 'target': self.target, 'depth': self.depth_index
+                'features': self.te_zheng_list, 'target': self.target,
+                'depth': self.depth_index, 'groupname': self.group_name,
+                'test_wellnames': manual_test_groups or []
             }
+            if setProgress:
+                setProgress(100)
+            return data_train, data_valing, data_test, dictt
 
-            self.Outputs.data_train.send([data_train])
+    def build_output_payload(self, data_train, data_valing, data_test, params):
+        if self.input_payload is not None:
+            payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type='process',
+                task='split',
+                data_kind='table_batch',
+            )
+        items = []
+        if data_train is not None:
+            items.append(PayloadManager.make_item(orange_table=table_from_frame(data_train), dataframe=data_train, role='train'))
+        if data_valing is not None:
+            items.append(PayloadManager.make_item(orange_table=table_from_frame(data_valing), dataframe=data_valing, role='val'))
+        if data_test is not None:
+            items.append(PayloadManager.make_item(orange_table=table_from_frame(data_test), dataframe=data_test, role='test'))
+        payload = PayloadManager.replace_items(payload, items, data_kind='table_batch')
+        result_table = table_from_frame(data_train) if data_train is not None else None
+        payload = PayloadManager.set_result(payload, orange_table=result_table, dataframe=data_train, extra={'params': params, 'has_val': data_valing is not None})
+        payload = PayloadManager.update_context(payload, split_params=params, testsize=self.testsize, valsize=self.valsize)
+        payload['legacy'].update({
+            'data_train': [] if data_train is None else [data_train],
+            'data_valing': [] if data_valing is None else [data_valing],
+            'data_test': [] if data_test is None else [data_test],
+            'params': params,
+        })
+        return payload
+
+    def _run_done(self, future):
+        try:
+            data_train, data_valing, data_test, dictt = future.result()
+        except Exception as e:
+            self.error(str(e))
+            return
+        self.Outputs.data_train.send([data_train])
+        self.Outputs.table_train.send(table_from_frame(data_train))
+        if data_valing is not None:
             self.Outputs.data_valing.send([data_valing])
-            self.Outputs.data_test.send([data_test])
-            self.Outputs.Canshu.send(dictt)
-            self.Outputs.table_train.send(table_from_frame(data_train))
             self.Outputs.table_valing.send(table_from_frame(data_valing))
-            self.Outputs.table_test.send(table_from_frame(data_test))
+        else:
+            self.Outputs.data_valing.send(None)
+            self.Outputs.table_valing.send(None)
+        self.Outputs.data_test.send([data_test])
+        self.Outputs.table_test.send(table_from_frame(data_test))
+        self.Outputs.Canshu.send(dictt)
+        self.Outputs.payload.send(self.build_output_payload(data_train, data_valing, data_test, dictt))
+
+    def run(self):
+        if self.data is None:
+            self.warning('请先输入数据')
+            return
+        if not self.te_zheng_list:
+            self.warning('请先选择特征属性')
+            return
+        if not self.target:
+            self.warning('请先选择目标属性')
+            return
+        if not self.group_name or self.group_name == '请选择' or self.group_name not in self.data.columns:
+            self.warning('请先选择有效的分组列(Group name)')
+            return
+        started = ThreadUtils_w.startAsyncTask(self, self._run_split_task, self._run_done)
+        if not started:
+            self.warning('当前已有任务正在运行，请稍后再试')
 
     def read(self):
         """读取数据方法"""
@@ -260,30 +367,55 @@ class Widget(OWWidget):
 
         self.selectedWellName = []
         self.propertyDict = {}
+        self.ddf = pd.DataFrame()
+        self.nn = []
+        self.te_zheng_list = []
+        self.li_san_list = []
+        self.target = None
+
+        self.top_table.setRowCount(0)
+        self.bot_table.setRowCount(0)
+        self.leftBottomTable.setRowCount(0)
+        self.label_content_mapping.clear()
+
+        self.header_combo_box.blockSignals(True)
+        self.header_combo_box.clear()
+        self.cmbx.clear()
+        self.gpcombox.clear()
 
         # 填充属性表格
         self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
 
-        # self.header_combo_box.addItems(self.ddf.columns)
-
         self.header_combo_box.addItems(self.ddf.columns)
-        self.fillnametable()
+        self.header_combo_box.blockSignals(False)
 
         # 寻找井名索引
         self.currentWellNameCol_YLD = None
         YLDCols: list = self.data.columns.tolist()
         for col in YLDCols:
-            if col.lower() in self.wellname_col_alias:
+            if str(col).lower() in self.wellname_col_alias:
                 self.currentWellNameCol_YLD = col
                 break
-        self.currentWellNameCol_WDZ = None
-        # 填充井名表格
-        self.tryFillNameTable()
-        self.cmbx.addItem("请选择")  # 设置默认选项
-        self.cmbx.addItems(self.data.columns)
+        self.currentWellNameCol_WDZ = self.currentWellNameCol_YLD
 
-        self.gpcombox.addItem("请选择")  # 设置默认选项
-        self.gpcombox.addItems(self.data.columns)
+        # 默认头部筛选列与分组列尽量保持一致，避免测试集为空
+        default_group_col = self.currentWellNameCol_YLD or (self.ddf.columns.tolist()[0] if not self.ddf.empty else None)
+
+        if self.header_combo_box.count() > 0:
+            if default_group_col and default_group_col in [self.header_combo_box.itemText(i) for i in range(self.header_combo_box.count())]:
+                self.header_combo_box.setCurrentText(default_group_col)
+            self.update_column_data(self.header_combo_box.currentText())
+
+        self.cmbx.addItem("请选择")
+        self.cmbx.addItems([str(c) for c in self.data.columns])
+        if self.depth_index and self.depth_index in self.data.columns:
+            self.cmbx.setCurrentText(self.depth_index)
+
+        self.gpcombox.addItem("请选择")
+        self.gpcombox.addItems([str(c) for c in self.data.columns])
+        if default_group_col and default_group_col in self.data.columns:
+            self.gpcombox.setCurrentText(default_group_col)
+            self.group_name = default_group_col
 
     #################### 读取GUI上的配置 ####################
     def getIgnoreColsList(self, find: str) -> list:
@@ -387,6 +519,8 @@ class Widget(OWWidget):
 
     def update_column_data(self, column_name):
         # 获取选中的列的数据
+        if column_name not in self.ddf.columns:
+            return
         self.selected_column_data = self.ddf[column_name]
         self.clumN = column_name
         self.fillnametable()
@@ -493,16 +627,16 @@ class Widget(OWWidget):
     def checkbox_changed(self, state, row):
         # 检查复选框是否被选中
         if state == Qt.Checked:
-            # 获取 'wellname' 列的值
             wellname_value = self.leftBottomTable.item(row, 1).data(Qt.UserRole)
-            self.nn.append(wellname_value)
+            if wellname_value not in self.nn:
+                self.nn.append(wellname_value)
             print(f"选中的内容：{wellname_value}")
             print(self.nn)
 
         if state == Qt.Unchecked:
-            # 获取 'wellname' 列的值
             wellname_value = self.leftBottomTable.item(row, 1).data(Qt.UserRole)
-            self.nn.remove(wellname_value)
+            if wellname_value in self.nn:
+                self.nn.remove(wellname_value)
             print(f"取消选中的内容：{wellname_value}")
             print(self.nn)
 
@@ -584,6 +718,11 @@ class Widget(OWWidget):
         super().__init__()
         self.ddf = pd.DataFrame()
         self.te_zheng_list = []
+        self.li_san_list = []
+        self.loglist = []
+        self.nn = []
+        self.payload_file_names = []
+        self.payload_file_paths = []
         layout = QGridLayout()
         layout.setSpacing(3)
         layout.setHorizontalSpacing(10)
@@ -849,6 +988,8 @@ class Widget(OWWidget):
 
     def update_column_data(self, column_name):
         # 获取选中的列的数据
+        if column_name not in self.ddf.columns:
+            return
         self.selected_column_data = self.ddf[column_name]
         self.clumN = column_name
         self.fillnametable()
@@ -1028,7 +1169,7 @@ class Widget(OWWidget):
 
     def on_combo_box_changed(self, text):
         # 每次下拉框的选择改变时调用该槽函数，打印当前选中的文本
-        self.depth_index = text
+        self.depth_index = None if text == '请选择' else text
         print("用户选择的值:", self.depth_index)
 
     group_name = None
@@ -1037,6 +1178,12 @@ class Widget(OWWidget):
         # 每次下拉框的选择改变时调用该槽函数，打印当前选中的文本
         self.group_name = text
         print("用户选择的值:", self.group_name)
+        # 左下勾选表必须和真正用于分组切分的列保持一致，否则 test_wellnames 会匹配不到
+        if text and text != '请选择' and text in self.ddf.columns.tolist():
+            self.header_combo_box.blockSignals(True)
+            self.header_combo_box.setCurrentText(text)
+            self.header_combo_box.blockSignals(False)
+            self.update_column_data(text)
 
     def on_radio_button_toggled(self, checked):
         # 每次单选按钮状态改变时调用该槽函数，打印当前选中的单选按钮的文本

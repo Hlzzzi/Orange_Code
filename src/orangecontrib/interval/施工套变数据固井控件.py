@@ -16,6 +16,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
 
 from .pkg import MyWidget
 from .pkg import 套变4施工套变数据固井数据链接 as runmain
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 class cengduan(OWWidget):
@@ -33,8 +35,10 @@ class cengduan(OWWidget):
     class Inputs:  # TODO:输入
         # 数据：通过【测井数据加载】控件【单文件选择】功能载入
         dataTOC = Input("目标类数据", list, auto_summary=False)
+        payloadTOC = Input("目标类payload", dict, auto_summary=False)
         # 数据：通过【测井数据加载】控件【文件夹选择】功能载入
         dataQX = Input("曲线数据", list, auto_summary=False)
+        payloadQX = Input("曲线payload", dict, auto_summary=False)
         dataQXPH = Input("曲线路径", str, auto_summary=False)
         # 钻测录数据文件名：通过修改后（增加了文件名list输出）的【测井数据加载】控件载入
         dataQX_names = Input("曲线井名", list, auto_summary=False)
@@ -48,7 +52,62 @@ class cengduan(OWWidget):
     currentWellNameCol: str = None  # 井名索引
     propertyDict: dict = None  # 属性字典
 
-    dataTOCPH: str = None
+
+    input_payload_toc = None
+    input_payload_qx = None
+
+    def _coerce_to_dataframe(self, obj):
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+        if isinstance(obj, pd.DataFrame):
+            return obj
+        return None
+
+    def _materialize_curve_items(self, items):
+        folder = os.path.abspath('./config_Cengduan/施工套变曲线payload输入')
+        os.makedirs(folder, exist_ok=True)
+        dfs = []
+        names = []
+        for idx, item in enumerate(items):
+            obj = item.get('dataframe')
+            if obj is None:
+                obj = item.get('orange_table')
+            df = self._coerce_to_dataframe(obj)
+            if df is None:
+                continue
+            stem = item.get('file_stem') or item.get('file_name') or f'item_{idx + 1}'
+            stem = os.path.splitext(str(stem))[0]
+            df.to_excel(os.path.join(folder, stem + '.xlsx'), index=False)
+            dfs.append(df)
+            names.append(stem)
+        return folder, dfs, names
+
+    @Inputs.payloadTOC
+    def set_payload_toc(self, payload):
+        if not payload:
+            self.input_payload_toc = None
+            return
+        self.input_payload_toc = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='process', task='link', data_kind='table_batch')
+        table = PayloadManager.get_single_table(self.input_payload_toc)
+        df = self._coerce_to_dataframe(table)
+        if df is not None:
+            self.set_dataYCZ([df])
+
+    @Inputs.payloadQX
+    def set_payload_qx(self, payload):
+        if not payload:
+            self.input_payload_qx = None
+            return
+        self.input_payload_qx = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='process', task='link', data_kind='table_batch')
+        items = PayloadManager.get_items(self.input_payload_qx)
+        folder, dfs, names = self._materialize_curve_items(items)
+        if dfs:
+            self.set_dataZCL(dfs)
+            self.set_dataZCL_names(names)
+            self.set_dataZCLPH(folder)
+        dataTOCPH: str = None
 
     @Inputs.dataTOC
     def set_dataYCZ(self, data):
@@ -119,6 +178,7 @@ class cengduan(OWWidget):
         table = Output("数据(Data)", Table, replaces=['Data'])  # 纯数据Table输出，用于与Orange其他部件交互
         # table = Output("数据表", Orange.data.Table)
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -177,37 +237,70 @@ class cengduan(OWWidget):
     #         columns = prop
     #         self.dataZCL = self.dataZCL.drop(columns=columns)
 
+
+    def _run_join_task(self, setProgress=None, isCancelled=None):
+        if self.dataTOC is None or self.dataQX is None or self.dataQX_names is None:
+            raise ValueError('请先输入数据')
+        if setProgress:
+            setProgress(1)
+        result = runmain.casing_Cementing_data_join(
+            self.dataTOCPH,
+            self.dataQXPH,
+            lognames=self.TZlist,
+            caseingwellname=self.JM,
+            caseingdepth=self.caseingdepth,
+            topdepth=self.DingS,
+            botdepth=self.Dis
+        )
+        if isCancelled and isCancelled():
+            raise RuntimeError('任务已取消')
+        if setProgress:
+            setProgress(80)
+        self.save(result)
+        if setProgress:
+            setProgress(100)
+        return result
+
+    def build_output_payload(self, result):
+        if self.input_payload_toc is not None and self.input_payload_qx is not None:
+            payload = PayloadManager.merge_payloads(
+                node_name=self.name,
+                input_payloads={'toc': self.input_payload_toc, 'qx': self.input_payload_qx},
+                node_type='merge',
+                task='link',
+                data_kind='table_batch'
+            )
+        elif self.input_payload_toc is not None:
+            payload = PayloadManager.clone_payload(self.input_payload_toc)
+        elif self.input_payload_qx is not None:
+            payload = PayloadManager.clone_payload(self.input_payload_qx)
+        else:
+            payload = PayloadManager.empty_payload(node_name=self.name, node_type='merge', task='link', data_kind='table_batch')
+        out_table = table_from_frame(result)
+        item = PayloadManager.make_item(orange_table=out_table, dataframe=result, role='main')
+        payload = PayloadManager.replace_items(payload, [item], data_kind='table_batch')
+        payload = PayloadManager.set_result(payload, orange_table=out_table, dataframe=result, extra={'rows': len(result)})
+        payload = PayloadManager.update_context(payload, caseingwellname=self.JM, caseingdepth=self.caseingdepth, topdepth=self.DingS, botdepth=self.Dis, lognames=list(self.TZlist))
+        payload['legacy'].update({'data': [result]})
+        return payload
+
+    def _run_done(self, future):
+        try:
+            result = future.result()
+        except Exception as e:
+            self.error(str(e))
+            return
+        self.Outputs.data.send([result])
+        self.Outputs.table.send(table_from_frame(result))
+        self.Outputs.payload.send(self.build_output_payload(result))
+
     def run(self):
-        """【核心入口方法】发送按钮回调"""
         if self.dataTOC is None or self.dataQX is None or self.dataQX_names is None:
             self.warning('请先输入数据')
             return
-
-        # 打印输出井名 两个深度属性 特征列表
-        print('TOC井名:', self.JM)
-        print('深度TOC:', self.caseingdepth)
-        print('特征:', self.TZlist)
-        print('路径QX', self.dataQXPH)
-        print('路径TOC', self.dataTOCPH)
-        print('顶深QX', self.DingS)
-        print('底深QX', self.Dis)
-
-        # a = casing_Cementing_data_join(casing_path, cementing_path,
-        #                            lognames=['顶深（m）', '底深（m）', '厚度（m）', '平均声幅（%）', '最大声幅（%）', '最小声幅（%）',
-        #                                      '第一界面结论', '第二界面结论', '综合解释结论'], caseingwellname='井名',
-        #                            caseingdepth='平均深度', topdepth='顶深（m）', botdepth='底深（m）',
-        #                            )
-
-        result = runmain.casing_Cementing_data_join(self.dataTOCPH, self.dataQXPH, lognames=self.TZlist,
-                                                    caseingwellname=self.JM, caseingdepth=self.caseingdepth,
-                                                    topdepth=self.DingS, botdepth=self.Dis)
-
-        self.save(result)
-
-        self.Outputs.data.send([result])
-        self.Outputs.table.send(table_from_frame(result))
-
-
+        started = ThreadUtils_w.startAsyncTask(self, self._run_join_task, self._run_done)
+        if not started:
+            self.warning('当前已有任务正在运行，请稍后再试')
 
     def read(self):
         """读取数据方法"""

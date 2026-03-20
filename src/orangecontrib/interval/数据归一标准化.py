@@ -17,6 +17,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel, QRadioButton, QButtonGroup
 
 from .pkg import 数据标准化_新 as runmain
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 class Widget(OWWidget):
@@ -36,6 +38,7 @@ class Widget(OWWidget):
         data = Input("数据", list, auto_summary=False)
         filepath = Input("文件路径", str, auto_summary=False)
         file_name = Input("文件名", list, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -55,6 +58,63 @@ class Widget(OWWidget):
     file_name = None
     lognames = []
 
+
+    input_payload = None
+
+    def _coerce_to_dataframe(self, obj):
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+        if isinstance(obj, pd.DataFrame):
+            return obj
+        return None
+
+    def _materialize_payload_items(self, items):
+        out_dir = os.path.abspath('./config_Cengduan/数据标准化_payload输入')
+        os.makedirs(out_dir, exist_ok=True)
+        names = []
+        dfs = []
+        for idx, item in enumerate(items):
+            obj = item.get('dataframe')
+            if obj is None:
+                obj = item.get('orange_table')
+            df = self._coerce_to_dataframe(obj)
+            if df is None:
+                continue
+            stem = item.get('file_stem') or item.get('file_name') or f'item_{idx + 1}'
+            stem = os.path.splitext(str(stem))[0]
+            df.to_excel(os.path.join(out_dir, stem + '.xlsx'), index=False)
+            names.append(stem)
+            dfs.append(df)
+        return out_dir, names, dfs
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type='process',
+            task='transform',
+            data_kind='table_batch',
+        )
+        items = PayloadManager.get_items(self.input_payload)
+        if not items:
+            return
+        folder_path, names, dfs = self._materialize_payload_items(items)
+        if dfs:
+            self.ALLdata = dfs
+            self.data = dfs[0]
+            self.user_inputpath = folder_path
+            self.file_name = names
+            self.read()
+            try:
+                self.fillfile()
+            except Exception:
+                pass
     @Inputs.data
     def set_data(self, data):
         if data:
@@ -101,6 +161,7 @@ class Widget(OWWidget):
         data = Output("汇总数据", list, auto_summary=False)  # 输出给控件
         file_name = Output("文件名", list, auto_summary=False)
         file_path = Output("文件路径", str, auto_summary=False)
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -211,64 +272,80 @@ class Widget(OWWidget):
     max_clip = 10
     order = 201
 
-    def run(self):
-        # # """【核心入口方法】发送按钮回调"""
-        # if self.data is None:
-        #     self.warning('请先输入数据')
-        #     return
-        # Intelligent_logs_standardization(logspath, lognames=['GR', 'SP', 'LLD', 'MSFL', 'LLS', 'AC', 'DEN', 'CNL'],
-        #                                  Normaltype='夹板法', normal=True,
-        #                                  nanlist=[-9999, -999.25, -999, 999, 999.25, 9999], zscoreVaule=3,
-        #                                  depth_index='depth',
-        #                                  replace_depth_names=['DEPT', 'DEPTH', 'depth', 'Depth', '#Depth'])
 
-        # # # 获取数据
-        print('logspath:', self.user_inputpath)
-        print('lognames:', self.lognames)
-        # print('Normaltype:', self.Normaltype)
-        # print('normal:', self.normal)
-        print('nanlist:', self.nanlist)
-        print('zscoreVaule:', self.zscoreVaule)
-        print('depth_index:', self.depth_index)
-
-        # aa = Intelligent_logs_standardization(logspath, datalists, lognames, dictnames=dictnames,
-        #                                       loglists=['LLD', 'LLS', 'MFSL', 'RT', 'RXO', 'RI'],
-        #                                       nanlist=[-9999, -999.25, -999, 999, 999.25, 9999], zscoreVaule=3,
-        #                                       depth_index='depth',
-        #                                       replace_depth_names=['DEPT', 'DEPTH', 'depth', 'Depth', '#Depth']
-        #                                       )
-
-        result = runmain.Intelligent_logs_standardization(logspath=self.user_inputpath, lognames=self.lognames
-                                                          , datalists=[], dictnames=self.dictnames, loglists=self.loglists,
-
-                                                          nanlist=self.nanlist, zscoreVaule=self.zscoreVaule,
-                                                          depth_index=self.depth_index,
-                                                          replace_depth_names=['DEPT', 'DEPTH', 'depth', 'Depth',
-                                                                               '#Depth'])
-
-        #
-        #
-        # 创建一个文件夹来保存 Excel 文件
+    def _run_standardize_task(self, setProgress=None, isCancelled=None):
+        if self.user_inputpath is None:
+            raise ValueError('请先输入文件路径')
+        if setProgress:
+            setProgress(1)
+        result = runmain.Intelligent_logs_standardization(
+            logspath=self.user_inputpath,
+            lognames=list(dict.fromkeys(self.lognames)),
+            datalists=[],
+            dictnames=self.dictnames,
+            loglists=list(dict.fromkeys(self.loglists)),
+            nanlist=self.nanlist,
+            zscoreVaule=self.zscoreVaule,
+            depth_index=self.depth_index,
+            replace_depth_names=['DEPT', 'DEPTH', 'depth', 'Depth', '#Depth']
+        )
+        if isCancelled and isCancelled():
+            raise RuntimeError('任务已取消')
+        if setProgress:
+            setProgress(70)
         folder_path = './config_Cengduan/数据标准'
-        os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-        # 保存到文件夹中的 Excel 文件
+        os.makedirs(folder_path, exist_ok=True)
         excel_file_path = os.path.join(folder_path, '数据归一标准化配置文件.csv')
-
-        result_df = runmain.add_filename_to_df(result, self.file_name)
-        # # # 保存
-        filename = self.save(result_df)
-
+        result_df = runmain.add_filename_to_df(result, self.file_name or [])
+        self.save(result_df)
         result_df.to_csv(excel_file_path, index=False)
+        if setProgress:
+            setProgress(100)
+        return result_df, folder_path, excel_file_path
 
-        # #
-        # #
-        # # # # 发送
+    def build_output_payload(self, result_df, folder_path, file_path):
+        if self.input_payload is not None:
+            payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type='process',
+                task='transform',
+                data_kind='table_batch'
+            )
+        out_table = table_from_frame(result_df)
+        item = PayloadManager.make_item(
+            file_path=file_path,
+            orange_table=out_table,
+            dataframe=result_df,
+            role='main',
+            meta={'folder_path': folder_path}
+        )
+        payload = PayloadManager.replace_items(payload, [item], data_kind='table_batch')
+        payload = PayloadManager.set_result(payload, orange_table=out_table, dataframe=result_df, extra={'file_path': file_path, 'folder_path': folder_path})
+        payload = PayloadManager.update_context(payload, save_dir=folder_path, depth_index=self.depth_index, lognames=list(dict.fromkeys(self.lognames)))
+        payload['legacy'].update({'data': [result_df], 'file_path': folder_path, 'file_name': ['数据归一标准化配置文件.xlsx']})
+        return payload
+
+    def _run_done(self, future):
+        try:
+            result_df, folder_path, file_path = future.result()
+        except Exception as e:
+            self.error(str(e))
+            return
         self.Outputs.table.send(table_from_frame(result_df))
         self.Outputs.data.send([result_df])
         self.Outputs.file_path.send(folder_path)
         self.Outputs.file_name.send(['数据归一标准化配置文件.xlsx'])
-        # # self.Outputs.dataCu.send([sk_result])
+        self.Outputs.payload.send(self.build_output_payload(result_df, folder_path, file_path))
+
+    def run(self):
+        if self.data is None and self.user_inputpath is None:
+            self.warning('请先输入数据')
+            return
+        started = ThreadUtils_w.startAsyncTask(self, self._run_standardize_task, self._run_done)
+        if not started:
+            self.warning('当前已有任务正在运行，请稍后再试')
 
     def read(self):
         """读取数据方法"""
