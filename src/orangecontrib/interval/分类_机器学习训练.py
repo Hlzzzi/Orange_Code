@@ -17,6 +17,8 @@ from PyQt5.QtWidgets import QGridLayout, QHeaderView, QComboBox, QTableWidget, Q
 
 from .pkg import MyWidget
 from .pkg import 新_分类学习导包 as amr
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 # 未使用的import不要优化，否则用户输入的字符串无法eval
@@ -37,10 +39,12 @@ class Widget(OWWidget):
         data = Input("数据大表", list, auto_summary=False)
         dataTable = Input("数据表格", Table, auto_summary=False)
         Canshu = Input("参数", dict, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
 
     data: pd.DataFrame = None
     dataDict: dict = None
     dataRoleDict: dict = None
+    input_payload = None
 
     # @Inputs.data
     # def set_data(self, data):
@@ -79,6 +83,53 @@ class Widget(OWWidget):
     def set_Canshu(self, Canshu):
         self.Canshu = Canshu
 
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="train",
+            task="train",
+            data_kind="model_bundle",
+        )
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
+        self._apply_payload_input(self.input_payload)
+
+    def _get_payload_train_df(self, payload):
+        df = PayloadManager.get_single_dataframe(payload, role='train')
+        if df is not None:
+            return df.copy()
+        table = PayloadManager.get_single_table(payload, role='train')
+        if table is not None:
+            df = table_to_frame(table)
+            self.merge_metas(table, df)
+            return df
+        df = PayloadManager.get_single_dataframe(payload)
+        if df is not None:
+            return df.copy()
+        table = PayloadManager.get_single_table(payload)
+        if table is not None:
+            df = table_to_frame(table)
+            self.merge_metas(table, df)
+            return df
+        return None
+
+    def _get_payload_params(self, payload):
+        ctx = payload.get('context', {}) or {}
+        res = payload.get('result', {}) or {}
+        params = ctx.get('train_params') or ctx.get('split_params') or res.get('params') or payload.get('legacy', {}).get('params')
+        return copy.deepcopy(params) if isinstance(params, dict) else None
+
+    def _apply_payload_input(self, payload):
+        self.data = self._get_payload_train_df(payload)
+        params = self._get_payload_params(payload)
+        if params:
+            self.Canshu = params
+        self.read()
+
     class Outputs:  # TODO
         # if there are two or more outputs, default=True marks the default output
         best_models = Output("Best_Models", dict, auto_summary=False)
@@ -87,6 +138,7 @@ class Widget(OWWidget):
         All_model_path = Output("All_Model_Path", str, auto_summary=False)
 
         Canshu = Output("参数", dict, auto_summary=False)
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -433,156 +485,188 @@ class Widget(OWWidget):
 
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
 
-    def run(self):
-        """【核心入口方法】发送按钮回调"""
+
+    def _collect_train_runtime(self):
         if self.data is None:
-            self.warning('请先输入数据')
-            # return
+            raise ValueError('请先输入训练数据')
+        if not self.Canshu:
+            raise ValueError('缺少参数输入')
 
-        self.clear_messages()
-
-        # 获取选中的算法名称
         regressorNames = self.getSelectedAlgoName()
         print('regressorNames:::', regressorNames)
         if len(regressorNames) == 0:
-            self.info('请至少选择一个算法')
-            return
+            raise ValueError('请至少选择一个算法')
 
-        # 获取优化器名
         optimizer = self.getOptimizationMethod()
-        # 获取交叉验证方法名
         crossValidation = self.getCrossValidationMethod()
-        # 获取决策指标名
         scoreType = self.getScoreType()
 
-        # 获取算法参数
-        parameters = {}
-        for name in regressorNames:
-            parameters[name] = self.getAlgoParameters(name)
+        feature = self.Canshu['features']
+        targ = self.Canshu['target']
+        if isinstance(targ, list):
+            targ = targ[0]
+        depth_index = self.Canshu.get('depth')
+        groupname = self.Canshu.get('groupname')
+        features = feature
+        targetss = [targ]
 
-        # 执行
+        values_set = set(self.data[targ])
+        values_list = list(values_set)
+        classnames = [values_list]
+        ddict = self.getAlgoParameters('公共参数')
+        split_number = ddict['分隔数']
+        testsize = ddict['训练集比例']
+        random_state = ddict['随机状态']
+        repeats_number = ddict['迭代数']
+        pop = ddict['pop']
+        MaxIter = ddict['MaxIter']
+
+        if self.save_radio == 1 and self.save_path:
+            outputPath = self.save_path
+        else:
+            outputPath = 'lithology_identification'
+
+        dictnames = {targ: classnames[0]}
+        return {
+            'data': self.data.copy(),
+            'features': features,
+            'targetss': targetss,
+            'depth_index': depth_index,
+            'groupname': groupname,
+            'classnames': classnames,
+            'regressorNames': regressorNames,
+            'optimizer': optimizer,
+            'crossValidation': crossValidation,
+            'scoreType': scoreType,
+            'split_number': split_number,
+            'testsize': testsize,
+            'random_state': random_state,
+            'repeats_number': repeats_number,
+            'pop': pop,
+            'MaxIter': MaxIter,
+            'outputPath': outputPath,
+            'dictnames': dictnames,
+        }
+
+    def _run_train_task(self, *, data, features, targetss, depth_index, groupname, classnames,
+                        regressorNames, optimizer, crossValidation, scoreType,
+                        split_number, testsize, random_state, repeats_number, pop, MaxIter,
+                        outputPath, dictnames, setProgress=None, isCancelled=None):
+        if setProgress:
+            setProgress(5)
+        if isCancelled and isCancelled():
+            return {'cancelled': True}
+        result, out_model_path, bestmodelPF = amr.Classifers_multiples(
+            data, features, targetss, dictnames,
+            '古龙页岩油岩性识别', regressorNames,
+            outpath=outputPath, modetype=optimizer,
+            mode_cv=crossValidation,
+            groupname=groupname, scoretype=scoreType,
+            split_number=split_number, testsize=testsize,
+            random_state=random_state,
+            repeats_number=repeats_number, pop=pop,
+            MaxIter=MaxIter,
+            minlists=['zero_one_loss', '0-1损失', 'log_loss', '对数似然损失',
+                      'hamming_loss', '汉明误差', 'hinge_loss', '铰链损失误差',
+                      'brier_score_loss' or '布里尔分数误差'])
+        if setProgress:
+            setProgress(95)
+        return {
+            'cancelled': False,
+            'result': result,
+            'out_model_path': out_model_path,
+            'bestmodelPF': bestmodelPF,
+            'features': features,
+            'targetss': targetss,
+            'depth_index': depth_index,
+            'classnames': classnames,
+            'groupname': groupname,
+        }
+
+    def _build_output_payload(self, *, best_models, all_models, best_model_path, all_model_path, canshu):
+        if self.input_payload is not None:
+            payload = PayloadManager.clone_payload(self.input_payload)
+            payload['node_name'] = self.name
+            payload['node_type'] = 'train'
+            payload['task'] = 'train'
+            payload['data_kind'] = 'model_bundle'
+        else:
+            payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type='train',
+                task='train',
+                data_kind='model_bundle',
+            )
+        payload = PayloadManager.set_models(
+            payload,
+            best=best_models,
+            all_models=all_models,
+            selected=best_models,
+            extra={'best_model_path': best_model_path, 'all_model_path': all_model_path}
+        )
+        payload = PayloadManager.update_context(
+            payload,
+            train_params=canshu,
+            model_path=best_model_path,
+            model_dir=all_model_path,
+            workflow_stage='train'
+        )
+        payload['legacy'].update({
+            'best_models': best_models,
+            'all_models': all_models,
+            'Best_Model_Path': best_model_path,
+            'All_Model_Path': all_model_path,
+            'Canshu': canshu,
+        })
+        return payload
+
+    def _on_train_finished(self, future):
         try:
-
-            # print(
-            #     'optimizer',
-            #     optimizer,
-            #     'crossValidation',
-            #     crossValidation,
-            #     'scoreType',
-            #     scoreType,
-            # )
-
-            print('self.Canshu', self.Canshu)
-            feature = self.Canshu['features']
-            targ = self.Canshu['target']
-            depth_index = self.Canshu['depth']
-            groupname = self.Canshu['groupname']
-            features = feature
-            targetss = [targ]
-            # print('features', features, 'targets', targetss)
-
-            values_set = set(self.data[targ])
-            # 将集合转换为列表## 避免重复
-            values_list = list(values_set)
-            aa = []
-            aa.append(values_list)
-
-            print('公共参数', self.getAlgoParameters('公共参数'))
-            ddict = self.getAlgoParameters('公共参数')
-            split_number = ddict['分隔数']
-            testsize = ddict['训练集比例']
-            random_state = ddict['随机状态']
-            repeats_number = ddict['迭代数']
-            pop = ddict['pop']
-            MaxIter = ddict['MaxIter']
-
-            if self.save_radio == 1 and self.save_path:  # 自定义路径
-                outputPath = self.save_path
-            else:
-                outputPath = 'lithology_identification'
-            # print('split_number', split_number, 'testsize', testsize, 'random_state', random_state, 'repeats_number',
-            #       repeats_number, 'pop', pop, 'MaxIter', MaxIter)
-
-            dictnames = {targ: aa[0]}
-
-            print(self.data)
-            print('dictnames', dictnames)
-            print('features', features)
-            print('targetss', targetss)
-            print('depth_index', depth_index)
-            print('groupname', groupname)
-
-
-            result, out_model_path, bestmodelPF = amr.Classifers_multiples(self.data, features, targetss, dictnames,
-                                                                           '古龙页岩油岩性识别', regressorNames,
-                                                                           outpath=outputPath, modetype=optimizer,
-                                                                           mode_cv=crossValidation,
-                                                                           groupname=groupname, scoretype=scoreType,
-                                                                           split_number=split_number, testsize=testsize,
-                                                                           random_state=random_state,
-                                                                           repeats_number=repeats_number, pop=pop,
-                                                                           MaxIter=MaxIter,
-                                                                           minlists=['zero_one_loss', '0-1损失',
-                                                                                     'log_loss', '对数似然损失',
-                                                                                     'hamming_loss', '汉明误差',
-                                                                                     'hinge_loss', '铰链损失误差',
-                                                                                     'brier_score_loss' or '布里尔分数误差'])
-
-            # a, b, c = Classifers_multiples(data, logs_names, y_names, dictnames,
-            #                                '古龙页岩油岩性识别', Classifiersnames, outpath='古龙页岩油岩性识别',
-            #                                modetype='滑动窗口法', mode_cv='GroupShuffleSplits',
-            #                                groupname='wellname', scoretype='accuracy_score',
-            #                                split_number=5, testsize=0.2, random_state=0, repeats_number=2,
-            #                                minlists=['zero_one_loss', '0-1损失', 'log_loss', '对数似然损失',
-            #                                          'hamming_loss', '汉明误差',
-            #                                          'hinge_loss', '铰链损失误差',
-            #                                          'brier_score_loss' or '布里尔分数误差'])
-            #
-            # Classifers_multiples(data, logs_names, y_names, dictnames, '古龙页岩油岩性识别', Classifiersnames,
-            #                      outpath='古龙页岩油岩性识别', modetype='滑动窗口法', mode_cv='GroupShuffleSplits',
-            #                      groupname='岩性', scoretype='accuracy_score', split_number=5, testsize=0.2,
-            #                      random_state=0, repeats_number=2,
-            #                      nanvlist=[-10000, -9999, -999.99, -999.25, -999, 999, 999.25, 9999])
-            #
-
-
-
-
-
-        except Exception as e:
+            task_result = future.result()
+        except Exception:
             traceback_str = traceback.format_exc()
             self.warning(traceback_str)
             return
-
-        # print(result)
+        if not task_result or task_result.get('cancelled'):
+            self.warning('任务已取消')
+            return
+        result = task_result['result']
         self.save(result)
-
-        # 定义相对路径
-        relative_path1 = str(bestmodelPF)
-        # 获取文件的绝对路径
-        absolute_path1 = os.path.abspath(relative_path1)
-        # 输出文件的绝对路径
-        # print("文件的绝对路径:", absolute_path1)
-
-        # 定义相对路径
-        relative_path = str(out_model_path)
-        # 获取文件夹的绝对路径
-        absolute_path = os.path.abspath(relative_path)
-        # 输出文件夹的绝对路径
-        # print("文件夹的绝对路径:", absolute_path)
-
+        absolute_path1 = os.path.abspath(str(task_result['bestmodelPF']))
+        absolute_path = os.path.abspath(str(task_result['out_model_path']))
         best_models = result['bestmodel']
-        self.Outputs.best_models.send(best_models)
-        # print('best_models::::', best_models)
         all_models = result['othermodel']
+        canshu = {
+            'features': task_result['features'],
+            'target': task_result['targetss'],
+            'depth': task_result['depth_index'],
+            'classnames': task_result['classnames'],
+            'groupname': task_result['groupname'],
+        }
+        self.Outputs.best_models.send(best_models)
         self.Outputs.all_models.send(all_models)
-        # print('all_models::::', all_models)
-
         self.Outputs.Best_model_path.send(str(absolute_path1))
-        # print('bestmodelPF::::', str(bestmodelPF))
         self.Outputs.All_model_path.send(str(absolute_path))
-        # print('out_model_path::::', str(out_model_path))
-        self.Outputs.Canshu.send({'features': features, 'target': targetss, 'depth': depth_index, 'classnames': aa})
+        self.Outputs.Canshu.send(canshu)
+        self.Outputs.payload.send(self._build_output_payload(
+            best_models=best_models,
+            all_models=all_models,
+            best_model_path=str(absolute_path1),
+            all_model_path=str(absolute_path),
+            canshu=canshu,
+        ))
+
+    def run(self):
+        """【核心入口方法】发送按钮回调"""
+        self.clear_messages()
+        try:
+            args = self._collect_train_runtime()
+        except Exception as e:
+            self.warning(str(e))
+            return
+        started = ThreadUtils_w.startAsyncTask(self, self._run_train_task, self._on_train_finished, **args)
+        if not started:
+            self.warning('当前已有任务在运行，请稍后再试')
 
     def renameKey(self, oldDict: dict, features: list) -> dict:
         """在字典Key的末尾加上特征参数列表"""
@@ -888,6 +972,7 @@ class Widget(OWWidget):
 
     def __init__(self):
         super().__init__()
+        self.input_payload = None
 
         layout = QGridLayout()
         layout.setSpacing(3)

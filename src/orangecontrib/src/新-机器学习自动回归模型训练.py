@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
 from .pkg import MyWidget
 from .pkg.Regressor_ML import Automatic_machine_learning_Regressor20240521 as amr
 from .pkg.zxc import ThreadUtils_w, Utils_w
+from ..payload_manager import PayloadManager
 
 
 # 未使用的import不要优化，否则用户输入的字符串无法eval
@@ -52,10 +53,12 @@ class Widget(OWWidget):
         data = Input("数据大表", dict, auto_summary=False)
         data_bak = Input("数据大表list", list, auto_summary=False)  # 适配【测井数据加载】单文件加载
         CanShu = Input("参数", dict, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
 
     data: pd.DataFrame = None
     dataDict: dict = None
     dataRoleDict: dict = None
+    input_payload = None
 
     @Inputs.data
     def set_data(self, data):
@@ -104,11 +107,50 @@ class Widget(OWWidget):
             }
             self.set_data(dataDict)
 
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+        self.input_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='train', task='train', data_kind='model_bundle')
+        print('payload 输入成功::::', PayloadManager.summary(self.input_payload))
+        self._apply_payload_input(self.input_payload)
+
+    def _payload_to_df(self, payload, role=None):
+        df = PayloadManager.get_single_dataframe(payload, role=role)
+        if df is not None:
+            return df.copy()
+        table = PayloadManager.get_single_table(payload, role=role)
+        if table is not None:
+            return Utils_w.tableToDataFrame(table)
+        return None
+
+    def _apply_payload_input(self, payload):
+        params = payload.get('context', {}).get('split_params') or payload.get('context', {}).get('train_params') or payload.get('result', {}).get('params') or payload.get('legacy', {}).get('params') or {}
+        df = self._payload_to_df(payload, role='train') or self._payload_to_df(payload)
+        if df is None:
+            return
+        self.data = df
+        features = params.get('features', [])
+        target = params.get('target', [])
+        if isinstance(target, str):
+            target = [target]
+        self.dataDict = {self.inputDataKey: df, 'future': features, 'target': target}
+        self.dataRoleDict = {}
+        for col in df.columns:
+            if col in features:
+                self.dataRoleDict[col] = self.dataRoleList[0]
+            elif col in target:
+                self.dataRoleDict[col] = self.dataRoleList[1]
+            else:
+                self.dataRoleDict[col] = self.dataRoleList[2]
+        self.read()
 
     class Outputs:
             # if there are two or more outputs, default=True marks the default output
         best_models = Output("Best_Models", dict, default=True, auto_summary=False)
         all_models = Output("All_Models", dict, auto_summary=False)
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -250,6 +292,7 @@ class Widget(OWWidget):
             result = f.result()
         except Exception as e:
             self.warning(traceback.format_exc())
+            return
 
         # 保存结果
         self.save(result)
@@ -265,6 +308,19 @@ class Widget(OWWidget):
                 all_models[key + "_" + key2] = models[key2]
         all_models = self.renameKey(all_models, self._features)
         self.Outputs.all_models.send(all_models)
+
+        if self.input_payload is not None:
+            payload = PayloadManager.clone_payload(self.input_payload)
+            payload['node_name'] = self.name
+            payload['node_type'] = 'train'
+            payload['task'] = 'train'
+            payload['data_kind'] = 'model_bundle'
+        else:
+            payload = PayloadManager.empty_payload(node_name=self.name, node_type='train', task='train', data_kind='model_bundle')
+        payload = PayloadManager.set_models(payload, best=best_models, all_models=all_models, selected=best_models)
+        payload = PayloadManager.update_context(payload, workflow_stage='train', features=self._features)
+        payload['legacy'].update({'best_models': best_models, 'all_models': all_models})
+        self.Outputs.payload.send(payload)
 
     def renameKey(self, oldDict: dict, features: list) -> dict:
         """在字典Key的末尾加上特征参数列表"""
@@ -570,6 +626,7 @@ class Widget(OWWidget):
 
     def __init__(self):
         super().__init__()
+        self.input_payload = None
 
         layout = QGridLayout()
         layout.setSpacing(3)

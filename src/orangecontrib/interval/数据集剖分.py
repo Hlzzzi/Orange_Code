@@ -315,12 +315,13 @@ class Widget(OWWidget):
         payload = PayloadManager.replace_items(payload, items, data_kind='table_batch')
         result_table = table_from_frame(data_train) if data_train is not None else None
         payload = PayloadManager.set_result(payload, orange_table=result_table, dataframe=data_train, extra={'params': params, 'has_val': data_valing is not None})
-        payload = PayloadManager.update_context(payload, split_params=params, testsize=self.testsize, valsize=self.valsize)
+        payload = PayloadManager.update_context(payload, split_params=params, train_params=params, testsize=self.testsize, valsize=self.valsize, workflow_stage='split')
         payload['legacy'].update({
             'data_train': [] if data_train is None else [data_train],
             'data_valing': [] if data_valing is None else [data_valing],
             'data_test': [] if data_test is None else [data_test],
             'params': params,
+            'Canshu': params,
         })
         return payload
 

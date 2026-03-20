@@ -9,13 +9,16 @@ from Orange.data import Table
 from Orange.data.pandas_compat import table_to_frame, table_from_frame
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
+import joblib
 from Orange.widgets.widget import OWWidget, Input, Output
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QFileDialog, QSplitter, QPushButton, QHeaderView, QTabWidget, QComboBox, QTableWidgetItem, QWidget, \
     QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel, QAbstractItemView, QRadioButton, QButtonGroup
-
+import shutil
 from .pkg import 模型评估_分类 as pgmodel
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 class Widget(OWWidget):
@@ -49,12 +52,14 @@ class Widget(OWWidget):
     suanfa = None
     modeltype = None
     ABC = None
+    input_payload = None
 
     class Inputs:  # TODO:输入
         data = Input("模型输入", dict, auto_summary=False)  # 输入数据
         modelPH = Input("模型路径", str, auto_summary=False)  # 输入数据
         canshu = Input("参数", dict, auto_summary=False)  # 输入数据
         data_main = Input("数据", list, auto_summary=False)  # 输入数据
+        payload = Input("payload", dict, auto_summary=False)
 
     modelPH = None
     dataPH = None
@@ -111,6 +116,254 @@ class Widget(OWWidget):
         else:
             self.canshu = None
 
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            self.data = None
+            self.dataMD = None
+            self.modelPH = None
+            self.best_model = None
+            self.all_models = {}
+            self.selected_models = {}
+            self.canshu = None
+            self.excel_file_path = None
+            self.read()
+            return
+
+        self._apply_payload_input(payload)
+
+    def _payload_to_df(self, payload, role=None):
+        """
+        从 payload 的 items 中取 DataFrame。
+        - role 不为 None 时，优先取指定 role
+        - 否则取第一份可用数据
+        """
+        if not payload:
+            return None
+
+        items = payload.get("items", [])
+        if not items:
+            return None
+
+        # 先按 role 精确找
+        if role is not None:
+            for item in items:
+                if item.get("role") != role:
+                    continue
+
+                df = item.get("dataframe")
+                table = item.get("orange_table")
+
+                if df is not None:
+                    return df.copy()
+                if table is not None:
+                    df = table_to_frame(table)
+                    self.merge_metas(table, df)
+                    return df
+
+        # 再退化到第一份可用数据
+        for item in items:
+            df = item.get("dataframe")
+            table = item.get("orange_table")
+
+            if df is not None:
+                return df.copy()
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+                return df
+
+        return None
+
+    def _save_eval_input_df(self, df):
+        """
+        把待评估数据保存到一个干净的输入目录里，避免和模型目录混在一起。
+        """
+        input_dir = './config_Cengduan/分类评估配置文件/eval_input_dir'
+        os.makedirs(input_dir, exist_ok=True)
+
+        # 清空旧输入目录，避免残留别的文件
+        for fn in os.listdir(input_dir):
+            fp = os.path.join(input_dir, fn)
+            try:
+                if os.path.isfile(fp):
+                    os.remove(fp)
+            except Exception:
+                pass
+
+        self.excel_file_path = os.path.join(input_dir, '分类评估配置文件.xlsx')
+        print('保存配置文件到:', self.excel_file_path)
+        df.to_excel(self.excel_file_path, index=False)
+
+    def _materialize_best_model_path(self, model_obj):
+        """
+        如果 payload 里只有 best 模型对象、没有模型路径，
+        则把 best 模型落盘成 .model（joblib），避免被源评估算法按 torch 读取。
+        """
+        if model_obj is None:
+            return None
+
+        model_dir = './config_Cengduan/分类评估配置文件/eval_model_dir'
+        os.makedirs(model_dir, exist_ok=True)
+
+        # 清空旧模型目录，避免残留其它文件
+        for fn in os.listdir(model_dir):
+            fp = os.path.join(model_dir, fn)
+            try:
+                if os.path.isfile(fp):
+                    os.remove(fp)
+            except Exception:
+                pass
+
+        temp_model_path = os.path.join(model_dir, 'payload_best_model.model')
+        joblib.dump(model_obj, temp_model_path)
+        print('自动保存 payload best 模型到:', temp_model_path)
+        return temp_model_path
+
+    def _prepare_eval_model_dir(self, model_path):
+        """
+        源评估算法吃的是“模型目录”，并会遍历目录里的所有文件。
+        为了保证默认只评估 best 模型，这里把 best 模型复制到一个干净目录里，再把该目录传下去。
+        """
+        if not model_path:
+            return None
+
+        if os.path.isdir(model_path):
+            return model_path
+
+        if os.path.isfile(model_path):
+            eval_model_dir = './config_Cengduan/分类评估配置文件/eval_model_dir'
+            os.makedirs(eval_model_dir, exist_ok=True)
+
+            # 清空旧目录，避免残留其它文件
+            for fn in os.listdir(eval_model_dir):
+                fp = os.path.join(eval_model_dir, fn)
+                try:
+                    if os.path.isfile(fp):
+                        os.remove(fp)
+                except Exception:
+                    pass
+
+            dst = os.path.join(eval_model_dir, os.path.basename(model_path))
+            shutil.copy2(model_path, dst)
+            print('评估专用模型目录:', eval_model_dir)
+            print('评估专用模型文件:', dst)
+            return eval_model_dir
+
+        return None
+
+
+    def _prepare_eval_model_dir(self, model_path):
+        """
+        源评估算法 model_evaluation_application 吃的是“模型目录”，
+        而且会遍历目录中的模型文件。
+        为了保证“默认只评估 best 模型”，这里把 best 模型复制到一个独立目录中，再把该目录传下去。
+        """
+        if not model_path:
+            return None
+
+        if os.path.isdir(model_path):
+            # 如果上游明确给的是目录，就沿用目录
+            return model_path
+
+        if os.path.isfile(model_path):
+            eval_model_dir = './config_Cengduan/分类评估配置文件/eval_model_dir'
+            os.makedirs(eval_model_dir, exist_ok=True)
+
+            # 清空旧目录，避免残留别的文件
+            for fn in os.listdir(eval_model_dir):
+                fp = os.path.join(eval_model_dir, fn)
+                try:
+                    if os.path.isfile(fp):
+                        os.remove(fp)
+                except Exception:
+                    pass
+
+            dst = os.path.join(eval_model_dir, os.path.basename(model_path))
+            shutil.copy2(model_path, dst)
+            print('评估专用模型目录:', eval_model_dir)
+            print('评估专用模型文件:', dst)
+            return eval_model_dir
+
+        return None
+
+    def _apply_payload_input(self, payload):
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="eval",
+            task="evaluate",
+            data_kind="table_batch",
+        )
+
+        # 1. 默认优先 test，没有就 val，再没有就第一份表
+        df = self._payload_to_df(self.input_payload, role='test')
+        if df is None:
+            df = self._payload_to_df(self.input_payload, role='val')
+        if df is None:
+            df = self._payload_to_df(self.input_payload)
+
+        self.data = df
+
+        if self.data is not None:
+            self._save_eval_input_df(self.data)
+        else:
+            self.excel_file_path = None
+
+        # 2. 默认优先 best 模型
+        models = self.input_payload.get("models", {})
+        self.best_model = models.get("best")
+        self.all_models = models.get("all_models") or models.get("all") or {}
+        self.selected_models = models.get("selected") or {}
+
+        # 3. 旧界面兼容
+        self.dataMD = {
+            "best_model": self.best_model,
+            "all_models": self.all_models,
+            "selected_models": self.selected_models,
+        }
+
+        result_info = self.input_payload.get("result", {})
+        legacy = self.input_payload.get("legacy", {})
+        context = self.input_payload.get("context", {})
+
+        # 4. 优先从 payload["models"] 里读路径（训练控件就是写在这里的）
+        self.modelPH = (
+                models.get("best_model_path")
+                or models.get("all_model_path")
+                or result_info.get("best_model_path")
+                or legacy.get("best_model_path")
+                or legacy.get("Best_Model_Path")
+                or context.get("best_model_path")
+                or context.get("model_path")
+                or context.get("model_dir")
+                or self.modelPH
+        )
+
+        # 5. 如果没有路径，但有 best 模型对象，就自动落盘成 .model
+        if not self.modelPH and self.best_model is not None:
+            self.modelPH = self._materialize_best_model_path(self.best_model)
+
+        if self.modelPH:
+            self.check_file_or_folder(self.modelPH)
+
+        # 6. 参数透传
+        self.canshu = (
+                context.get("train_params")
+                or legacy.get("params")
+                or legacy.get("Canshu")
+                or self.canshu
+        )
+
+        self.read()
+
+        print("评估 payload 摘要:", PayloadManager.summary(self.input_payload))
+        print("评估默认数据来源: test -> val -> first")
+        print("评估默认模型:", "best" if self.best_model is not None else "None")
+        print("评估模型路径:", self.modelPH)
+        print("评估参数:", self.canshu)
+
     def check_file_or_folder(self, path):
         if os.path.isfile(path):
             self.modeltype = '单模型'
@@ -146,6 +399,7 @@ class Widget(OWWidget):
         PRtable = Output("预测表", Table, auto_summary=False)  # 输出预测
 
         canshu = Output("参数", dict, auto_summary=False)  # 输出数据
+        payload = Output("payload", dict, auto_summary=False)
 
     save_radio = Setting(2)
 
@@ -190,71 +444,126 @@ class Widget(OWWidget):
     NumType = ['int64', 'float64']
 
     def read(self):
-        keys = self.dataMD.keys()
-        keys = list(keys)
-        # 填充模型表格
+        if self.dataMD is None:
+            self.MDtable.setRowCount(0)
+            return
+
+        if isinstance(self.dataMD, dict):
+            keys = list(self.dataMD.keys())
+        else:
+            keys = []
+
         self.populateTable(keys)
+
+    def _collect_eval_runtime(self):
+        if self.canshu is None:
+            raise ValueError('缺少参数输入')
+
+        if self.excel_file_path is None:
+            raise ValueError('缺少待评估数据输入')
+
+        if self.modelPH is None:
+            raise ValueError('缺少模型路径输入')
+
+        score_type = self.suanfa or 'accuracy_score'
+
+        features = self.canshu['features']
+        depth_index = self.canshu['depth']
+        target = self.canshu['target']
+        if isinstance(target, str):
+            target = [target]
+
+        classnames1 = self.canshu['classnames']
+
+        # 只包含 best 模型的专用目录
+        model_dir = self._prepare_eval_model_dir(self.modelPH)
+        if model_dir is None:
+            raise ValueError('模型目录准备失败')
+
+        # 评估输入目录：只包含测试集 xlsx
+        folder_path = os.path.dirname(self.excel_file_path)
+
+        return {
+            'folder_path': folder_path,
+            'model_path': model_dir,
+            'features': features,
+            'target': target,
+            'classnames': classnames1,
+            'score_type': score_type,
+            'depth_index': depth_index,
+            'save_path': self.save_path,
+        }
+
+
+
+    def _run_eval_task(self, *, folder_path, model_path, features, target, classnames, score_type, depth_index, save_path, setProgress=None, isCancelled=None):
+        if setProgress:
+            setProgress(5)
+        datalists = []
+        modellists = []
+        test_result, data_log2 = pgmodel.model_evaluation_application(
+            folder_path, model_path, datalists, modellists, features,
+            target[0], classnames[0], score_type,
+            normalize=True, loglists=[],
+            nanvlits=[-9999, -999.25, -999, 999, 999.25, 9999],
+            save_out_path=save_path,
+            filename='test_result_save',
+            depth_index=depth_index,
+            savemode='.csv')
+        if setProgress:
+            setProgress(95)
+        return {
+            'cancelled': False,
+            'score_df': test_result,
+            'pred_df': data_log2,
+            'model_path': model_path,
+            'features': features,
+            'target': target,
+            'classnames': classnames,
+            'depth_index': depth_index,
+            'score_type': score_type,
+        }
+
+    def _build_output_payload(self, *, score_df, pred_df, score_type):
+        if self.input_payload is not None:
+            payload = PayloadManager.clone_payload(self.input_payload)
+            payload['node_name'] = self.name
+            payload['node_type'] = 'eval'
+            payload['task'] = 'evaluate'
+        else:
+            payload = PayloadManager.empty_payload(node_name=self.name, node_type='eval', task='evaluate', data_kind='model_bundle')
+        payload = PayloadManager.set_result(payload, scores=score_df, predictions=pred_df, extra={'score_type': score_type})
+        payload = PayloadManager.update_context(payload, evaluation_metric=score_type, workflow_stage='evaluate')
+        payload['legacy'].update({'score_df': score_df, 'pred_df': pred_df, 'canshu': self.canshu})
+        return payload
+
+    def _on_eval_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            self.error(str(e))
+            return
+        score_df = task_result['score_df']
+        pred_df = task_result['pred_df']
+        self.Outputs.best_model.send(self.dataMD)
+        self.Outputs.all_model.send(self.dataMD)
+        self.Outputs.best_model_Path.send(task_result['model_path'])
+        self.Outputs.all_model_Path.send(task_result['model_path'])
+        self.Outputs.score.send(table_from_frame(score_df))
+        self.Outputs.PRtable.send(table_from_frame(pred_df))
+        self.Outputs.canshu.send(self.canshu)
+        self.Outputs.payload.send(self._build_output_payload(score_df=score_df, pred_df=pred_df, score_type=task_result['score_type']))
 
     def run(self):
         """【核心入口方法】发送按钮回调"""
-
-        ############################# 评估模型 #############################
-        # pgmodel.application_classifierevaluation_multiple_data_multiple_model(self.datatype, self.dataPH, self.modeltype, self.modelPH,
-        #                                                               self.features, y_name=self.target,
-        #                                                               classes=classnames,
-        #                                                               save_out_path=self.save_path,
-        #                                                               filename=self.datatype + self.modeltype,
-        #                                                               depth_index=self.depth_index, scoretype=self.suanfa,
-        #                                                               savetype='.xlsx')
-        self.features = self.canshu['features']
-        self.depth_index = self.canshu['depth']
-        self.target = self.canshu['target']
-        classnames1 = self.canshu['classnames']
-        self.datatype = '单文件'
-
-        # 提取文件夹路径
-        folder_path = os.path.dirname(self.excel_file_path)
-
-        if os.path.isfile(self.modelPH):
-            self.modelPH = os.path.dirname(self.modelPH)
-        else:
-            print('modelPH:', self.modelPH)
-
-        print('folder_path:', folder_path)
-        print('self.modelPH:', self.modelPH)
-
-        print('self.features:', self.features)
-        print('self.target:', self.target[0])
-        print('classnames1:', classnames1[0])
-        print('self.suanfa:', self.suanfa)
-        print("depth_index:", self.depth_index)
-
-        datalists = []
-        modellists = []
-
-        test_result, data_log2 = pgmodel.model_evaluation_application(folder_path, self.modelPH, datalists,
-                                                                      modellists, self.features,
-                                                                      self.target[0], classnames1[0], self.suanfa,
-                                                                      normalize=True, loglists=[],
-                                                                      nanvlits=[-9999, -999.25, -999, 999, 999.25,
-                                                                                9999],
-                                                                      save_out_path=self.save_path,
-                                                                      filename='test_result_save',
-                                                                      depth_index=self.depth_index,
-                                                                      savemode='.csv')
-        print(data_log2)
-
-        self.Outputs.best_model.send(self.dataMD)
-        self.Outputs.all_model.send(self.dataMD)
-
-        self.Outputs.best_model_Path.send(self.modelPH)
-        self.Outputs.all_model_Path.send(self.modelPH)
-
-        self.Outputs.score.send(table_from_frame(test_result))
-        self.Outputs.PRtable.send(table_from_frame(data_log2))
-
-        self.Outputs.canshu.send(self.canshu)
-
+        try:
+            args = self._collect_eval_runtime()
+        except Exception as e:
+            self.warning(str(e))
+            return
+        started = ThreadUtils_w.startAsyncTask(self, self._run_eval_task, self._on_eval_finished, **args)
+        if not started:
+            self.warning('当前已有任务在运行，请稍后再试')
 
     propertyDict: dict = None  # 属性字典
 
@@ -276,6 +585,7 @@ class Widget(OWWidget):
 
     def __init__(self):
         super().__init__()
+        self.input_payload = None
         pd.set_option('mode.chained_assignment', None)  # TODO: 关闭代码中所有SettingWithCopyWarning
         self.ddf = pd.DataFrame()
         self.sort_order_ascending = False  # 用于跟踪排序顺序的变量

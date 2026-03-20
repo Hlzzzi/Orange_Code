@@ -13,9 +13,13 @@ from Orange.widgets.widget import OWWidget, Input, Output
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QFileDialog, QSplitter, QPushButton, QHeaderView, QTabWidget, QComboBox, QTableWidgetItem, QWidget, \
-    QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel,QAbstractItemView,QRadioButton,QButtonGroup
+    QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel, QAbstractItemView, QRadioButton, QButtonGroup
+import joblib
 
 from .pkg import 模型应用_分类 as runmain
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
+
 
 class Widget(OWWidget):
     # Widget needs a name, or it is considered an abstract widget
@@ -37,7 +41,7 @@ class Widget(OWWidget):
     State_colsAttr = []
     State_colAll = []  # 列表元素：每个文件对应的全选框的选取状态（T/F）
     waitdata = []
-    
+
     selectedWellName: list = None  # 选中的井名列表
     currentWellNameCol_YLD: str = None  # 压裂段井名索引
     currentWellNameCol_WDZ: str = None  # 微地震井名索引
@@ -45,41 +49,43 @@ class Widget(OWWidget):
     namedata = None
     keynames = None
 
-
     datatype = None
     depth_index = None
     suanfa = None
     modeltype = None
     ABC = None
-
+    input_payload = None
+    apply_data_payload = None
 
     class Inputs:  # TODO:输入
         data = Input("模型输入", dict, auto_summary=False)  # 输入数据
         modelPH = Input("模型路径", str, auto_summary=False)  # 输入数据
         data_main = Input("数据", list, auto_summary=False)  # 输入数据
-
         canshu = Input("参数", dict, auto_summary=False)  # 输入数据
-
+        payload = Input("payload", dict, auto_summary=False)
+        data_payload = Input("应用数据payload", dict, auto_summary=False)
 
     modelPH = None
     dataPH = None
+
     @Inputs.data
     def set_data(self, data):
         if data is not None:
-            self.dataMD:dict = data
-            print('data:',data)
+            self.dataMD: dict = data
+            print('data:', data)
             self.read()
 
     @Inputs.modelPH
     def set_modelPH(self, modelPH):
         if modelPH is not None:
             self.modelPH = modelPH
-            print('modelPH:',modelPH)
+            print('modelPH:', modelPH)
             self.check_file_or_folder(modelPH)
         else:
             self.modelPH = None
 
     excel_file_path = None
+
     @Inputs.data_main
     def set_dataaaa(self, data):
         # self.Ture_data = data[0]
@@ -112,53 +118,179 @@ class Widget(OWWidget):
         else:
             self.data = None
 
-
-
     canshu = None
+
     @Inputs.canshu
     def set_canshu(self, canshu):
         if canshu is not None:
             self.canshu = canshu
-            print('canshu:',canshu)
+            print('canshu:', canshu)
         else:
             self.canshu = None
 
-    def check_file_or_folder(self,path):
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+        self.input_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='apply',
+                                                           task='predict', data_kind='table_batch')
+        print('payload 输入成功::::', PayloadManager.summary(self.input_payload))
+        self._apply_workflow_payload(self.input_payload)
+
+    @Inputs.data_payload
+    def set_data_payload(self, payload):
+        if not payload:
+            self.apply_data_payload = None
+            return
+        self.apply_data_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='apply',
+                                                                task='predict', data_kind='table_batch')
+        print('应用数据 payload 输入成功::::', PayloadManager.summary(self.apply_data_payload))
+        self._apply_external_data_payload(self.apply_data_payload)
+
+    def _payload_to_df(self, payload, role=None):
+        if not payload:
+            return None
+
+        items = payload.get("items", [])
+        if not items:
+            return None
+
+        if role is not None:
+            for item in items:
+                if item.get("role") != role:
+                    continue
+
+                df = item.get("dataframe")
+                table = item.get("orange_table")
+                if df is not None:
+                    return df.copy()
+                if table is not None:
+                    df = table_to_frame(table)
+                    self.merge_metas(table, df)
+                    return df
+
+        for item in items:
+            df = item.get("dataframe")
+            table = item.get("orange_table")
+            if df is not None:
+                return df.copy()
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+                return df
+
+        return None
+
+    def _materialize_best_model_path(self, model_obj):
+        if model_obj is None:
+            return None
+
+        folder_path = './config_Cengduan/分类应用配置文件'
+        os.makedirs(folder_path, exist_ok=True)
+
+        temp_model_path = os.path.join(folder_path, 'payload_best_model.model')
+        joblib.dump(model_obj, temp_model_path)
+        print('自动保存 payload best 模型到:', temp_model_path)
+        return temp_model_path
+
+    def _save_single_apply_df(self, df):
+        folder_path = './config_Cengduan/分类应用配置文件'
+        os.makedirs(folder_path, exist_ok=True)
+        self.excel_file_path = os.path.join(folder_path, '分类应用配置文件.xlsx')
+        print('保存配置文件到:', self.excel_file_path)
+        df.to_excel(self.excel_file_path, index=False)
+        self.dataPH = self.excel_file_path
+        self.datatype = '单数据'
+        self.data = df.copy()
+        self.lognames = []
+        self.selectedWellName = []
+        self.propertyDict = {}
+        self.check_file_or_folder1(self.excel_file_path)
+
+    def _apply_workflow_payload(self, payload):
+        models = payload.get('models', {}) or {}
+
+        self.dataMD = {
+            'best_model': models.get('best'),
+            'all_models': models.get('all') or models.get('all_models') or {},
+            'selected_models': models.get('selected') or {},
+        }
+
+        # 默认优先 best_model_path，再退 all_model_path
+        self.modelPH = (
+                models.get('best_model_path')
+                or models.get('all_model_path')
+                or payload.get('context', {}).get('best_model_path')
+                or payload.get('context', {}).get('model_path')
+                or payload.get('context', {}).get('model_dir')
+                or payload.get('legacy', {}).get('Best_Model_Path')
+                or payload.get('legacy', {}).get('All_Model_Path')
+        )
+
+        # 如果没有路径，但 payload 里有 best 模型对象，就自动落盘
+        if not self.modelPH and models.get('best') is not None:
+            self.modelPH = self._materialize_best_model_path(models.get('best'))
+
+        if self.modelPH:
+            self.check_file_or_folder(self.modelPH)
+
+        self.canshu = (
+                payload.get('context', {}).get('train_params')
+                or payload.get('context', {}).get('split_params')
+                or payload.get('legacy', {}).get('Canshu')
+                or payload.get('legacy', {}).get('params')
+        )
+
+        # 默认优先 test，没有就 val，再没有就第一份表
+        df = self._payload_to_df(payload, role='test')
+        if df is None:
+            df = self._payload_to_df(payload, role='val')
+        if df is None:
+            df = self._payload_to_df(payload)
+
+        if df is not None and self.apply_data_payload is None:
+            self._save_single_apply_df(df)
+
+        self.read()
+
+
+
+    def _apply_external_data_payload(self, payload):
+        df = self._payload_to_df(payload)
+        if df is not None:
+            self._save_single_apply_df(df)
+
+    def check_file_or_folder(self, path):
         if os.path.isfile(path):
             self.modeltype = '单模型'
-            print('self.modeltype:',self.modeltype)
+            print('self.modeltype:', self.modeltype)
         elif os.path.isdir(path):
             self.modeltype = '多模型'
-            print('self.modeltype:',self.modeltype)
+            print('self.modeltype:', self.modeltype)
         else:
             print(f"{path} 不是有效的文件或文件夹路径。")
 
-    def check_file_or_folder1(self,path):
+    def check_file_or_folder1(self, path):
         if os.path.isfile(path):
             self.datatype = '单数据'
-            print('self.datatype:',self.datatype)
+            print('self.datatype:', self.datatype)
             self.data = pd.read_excel(path)
             self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
         elif os.path.isdir(path):
             self.datatype = '多数据'
-            print('self.datatype:',self.datatype)
+            print('self.datatype:', self.datatype)
             self.data = self.read_excel_files_in_folder(path)
             self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
         else:
             print(f"{path} 不是有效的文件或文件夹路径。")
-
-
-
-
 
     class Outputs:  # TODO:输出
         data = Output("数据", list, auto_summary=False)  # 输出数据
         dataID = Output("数据名", list, auto_summary=False)  # 输出数据
         ttable = Output("单数据表格", Table, auto_summary=False)  # 输出数据
         tableYQ = Output("多数据表格", list, auto_summary=False)  # 输出数据
-
-
-
+        payload = Output("payload", dict, auto_summary=False)
 
     save_radio = Setting(2)
 
@@ -193,11 +325,11 @@ class Widget(OWWidget):
     dataYLD_type_list: list = ['常规数值', '指数数值', '文本', '其他']  #
     dataYLD_funcType_list: list = ['井名索引', '层号索引', '顶深索引', '底深索引', '深度索引', '目标', '特征', '其他',
                                    '忽略', 'x',
-                                   'y', 'z','None']
+                                   'y', 'z', 'None']
     dataWDZ_type_list: list = ['常规数值', '指数数值', '文本', '其他']  # 微地震数据类型选择列表
     dataWDZ_funcType_list: list = ['井名索引', '层号索引', '顶深索引', '底深索引', '深度索引', '目标', '特征', '其他',
                                    '忽略', 'x',
-                                   'y', 'z','None']
+                                   'y', 'z', 'None']
 
     TextType = ['object', 'category']
     NumType = ['int64', 'float64']
@@ -209,103 +341,135 @@ class Widget(OWWidget):
         self.populateTable(keys)
 
 
-
     lognames = []
-    def run(self):
-        """【核心入口方法】发送按钮回调"""
 
 
-
+    def _collect_apply_runtime(self):
+        if self.canshu is None:
+            raise ValueError('缺少参数输入')
+        if self.modelPH is None:
+            raise ValueError('缺少模型路径输入')
+        if self.excel_file_path is None:
+            raise ValueError('缺少应用数据输入')
         classnameess = self.canshu['classnames']
-        self.target = self.canshu['target']
+        target = self.canshu['target']
+        if isinstance(target, str):
+            target = [target]
+        self.target = target
         self.lognames = self.canshu['features']
         self.depth_index = self.canshu['depth']
+        return {
+            'datatype': self.datatype,
+            'inputpath': self.excel_file_path,
+            'modeltype': self.modeltype,
+            'modelpath': self.modelPH,
+            'lognames': self.lognames,
+            'otherlognames': list(self.otherlognames),
+            'classes': classnameess[0],
+            'save_out_path': self.save_path,
+            'depth_index': self.depth_index,
+        }
 
-        print('self.datatype:', self.datatype)
-        print('self.dataPH:', self.excel_file_path)
-        print('self.modeltype:', self.modeltype)
-        print('self.modelPH:', self.modelPH)
-        print('self.lognames:', self.lognames)
-        print('self.target:', self.target)
-        print('classnames:', classnameess[0])
-        print('self.save_path:', self.save_path)
-        print('self.depth_index:', self.depth_index)
-        print('self.otherlognames:', self.otherlognames)
+
+    def _run_apply_task(self, *, datatype, inputpath, modeltype, modelpath, lognames, otherlognames, classes, save_out_path,
+                        depth_index, setProgress=None, isCancelled=None):
+        if setProgress:
+            setProgress(5)
         result = runmain.application_classifier(
-            datatype=self.datatype,
-            inputpath=self.excel_file_path,
-            modeltype=self.modeltype,
-            modelpath=self.modelPH,
-            lognames=self.lognames,
-            otherlognames=self.otherlognames,
-            classes=classnameess[0],
-            save_out_path=self.save_path,
-            depth_index=self.depth_index,
+            datatype=datatype,
+            inputpath=inputpath,
+            modeltype=modeltype,
+            modelpath=modelpath,
+            lognames=lognames,
+            otherlognames=otherlognames,
+            classes=classes,
+            save_out_path=save_out_path,
+            depth_index=depth_index,
             savetype='.xlsx'
-
         )
-        # else:
-        #
-        #     values_set = set(self.data[self.target])
-        #     # 将集合转换为列表## 避免重复
-        #     values_list = list(values_set)
-        #     classnames = []
-        #     classnames.append(values_list)
-        #
-        #     print('self.datatype:', self.datatype)
-        #     print('self.dataPH:', self.excel_file_path)
-        #     print('self.modeltype:', self.modeltype)
-        #     print('self.modelPH:', self.modelPH)
-        #     print('self.lognames:', self.lognames)
-        #     print('self.target:', [self.target])
-        #     print('classnames:', classnames[0])
-        #     print('self.save_path:', self.save_path)
-        #     print('self.depth_index:', self.depth_index)
-        #     print('self.otherlognames:', self.otherlognames)
-        #     result = runmain.application_classifier(
-        #         datatype=self.datatype,
-        #         inputpath=self.excel_file_path,
-        #         modeltype=self.modeltype,
-        #         modelpath=self.modelPH,
-        #         lognames=self.lognames,
-        #         otherlognames=self.otherlognames,
-        #         classes=classnames[0],
-        #         save_out_path=self.save_path,
-        #         depth_index=self.depth_index,
-        #         savetype='.xlsx'
-        #     )
+        if setProgress:
+            setProgress(95)
+        return {'cancelled': False, 'result': result, 'datatype': datatype}
 
 
-        if self.datatype == '单数据':
+    def _build_output_payload(self, result):
+        if self.input_payload is not None and self.apply_data_payload is not None:
+            payload = PayloadManager.merge_payloads(node_name=self.name, input_payloads={'workflow': self.input_payload,
+                                                                                         'apply_data': self.apply_data_payload},
+                                                    node_type='apply', task='predict', data_kind='table_batch')
+        elif self.input_payload is not None:
+            payload = PayloadManager.clone_payload(self.input_payload)
+            payload['node_name'] = self.name
+            payload['node_type'] = 'apply'
+            payload['task'] = 'predict'
+        elif self.apply_data_payload is not None:
+            payload = PayloadManager.clone_payload(self.apply_data_payload)
+            payload['node_name'] = self.name
+            payload['node_type'] = 'apply'
+            payload['task'] = 'predict'
+        else:
+            payload = PayloadManager.empty_payload(node_name=self.name, node_type='apply', task='predict',
+                                                   data_kind='table_batch')
+        items = []
+        if isinstance(result, list):
+            for i, df in enumerate(result):
+                items.append(PayloadManager.make_item(orange_table=table_from_frame(df), dataframe=df, role='prediction',
+                                                      meta={'index': i}))
+            pred_df = runmain.add_filename_to_df(result, self.get_filenames_without_extension(self.excel_file_path))
+        else:
+            items.append(
+                PayloadManager.make_item(orange_table=table_from_frame(result), dataframe=result, role='prediction'))
+            pred_df = result
+        payload = PayloadManager.replace_items(payload, items, data_kind='table_batch')
+        payload = PayloadManager.set_result(payload, dataframe=pred_df, predictions=pred_df)
+        payload = PayloadManager.update_context(payload, workflow_stage='apply',
+                                                apply_data_override=self.apply_data_payload is not None)
+        payload['legacy'].update({'data': pred_df, 'dataID': ['数据大表']})
+        return payload
+
+
+    def _on_apply_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            self.error(str(e))
+            return
+        result = task_result['result']
+        if task_result['datatype'] == '单数据':
             self.Outputs.data.send([result])
             self.Outputs.ttable.send(table_from_frame(result))
-        elif self.datatype == '多数据':
+            self.Outputs.tableYQ.send(None)
+        else:
             filename = self.get_filenames_without_extension(self.excel_file_path)
             tables = []
             for i, table in enumerate(result):
                 table1 = table_from_frame(table)
                 table1.name = filename[i]
-                # 将每个 DataFrame 转换为 Orange Table，并设置名字
-                print('tables:',tables)
                 tables.append(table1)
             self.Outputs.tableYQ.send(tables)
             result_df = runmain.add_filename_to_df(result, filename)
             self.Outputs.data.send([result_df])
-            # alllist_data = []
-            # for x in result:
-            #     datalist = x.values.tolist()
-            #     alllist_data.append(datalist)
-            #
-            #
-            # print(alllist_data)
-            # self.Outputs.data.send(alllist_data)
-            # print("seccess")
+            self.Outputs.ttable.send(None)
         self.Outputs.dataID.send(['数据大表'])
+        self.Outputs.payload.send(self._build_output_payload(result))
+
+
+    def run(self):
+        """【核心入口方法】发送按钮回调"""
+        try:
+            args = self._collect_apply_runtime()
+        except Exception as e:
+            self.warning(str(e))
+            return
+        started = ThreadUtils_w.startAsyncTask(self, self._run_apply_task, self._on_apply_finished, **args)
+        if not started:
+            self.warning('当前已有任务在运行，请稍后再试')
 
     propertyDict: dict = None  # 属性字典
+
     #################### 读取GUI上的配置 ####################
 
-    def get_filenames_without_extension(self,folder_path):
+    def get_filenames_without_extension(self, folder_path):
         filenames = []
         for filename in os.listdir(folder_path):
             # 获取文件的完整路径
@@ -336,6 +500,8 @@ class Widget(OWWidget):
 
     def __init__(self):
         super().__init__()
+        self.input_payload = None
+        self.apply_data_payload = None
         pd.set_option('mode.chained_assignment', None)  # TODO: 关闭代码中所有SettingWithCopyWarning
         self.ddf = pd.DataFrame()
         self.sort_order_ascending = False  # 用于跟踪排序顺序的变量
@@ -364,7 +530,6 @@ class Widget(OWWidget):
         # # 将容器添加到 QGridLayout 的第二行第二列
         # layout.addWidget(container, 0,0)
 
-
         self.shuxinTB = QVBoxLayout()
 
         self.leftTopTable = QTableWidget()
@@ -378,7 +543,6 @@ class Widget(OWWidget):
         container_suanfa.setLayout(self.shuxinTB)
         layout.addWidget(container_suanfa, 1, 0)
 
-
         self.MDlayout = QVBoxLayout()
         self.MDtable = QTableWidget()
         self.MDtable.setRowCount(0)
@@ -388,11 +552,6 @@ class Widget(OWWidget):
         container_MD = QWidget()
         container_MD.setLayout(self.MDlayout)
         layout.addWidget(container_MD, 0, 1, 2, 1)
-
-
-
-
-
 
         hLayout = QHBoxLayout()
         gui.widgetBox(self.buttonsArea, orientation=hLayout, box=None)
@@ -410,16 +569,15 @@ class Widget(OWWidget):
 
         self.resize(550, 350)
 
-
-
     ###################################################################################
 
     otherlognames = []
-    def ignore_function(self,text,prop):
+
+    def ignore_function(self, text, prop):
         # 执行 '忽略' 选项后的处理逻辑
         # print("忽略选项被选择，执行相应的函数")
         if text == '忽略':
-            print("忽略选项被选择，执行相应的函数",prop)
+            print("忽略选项被选择，执行相应的函数", prop)
             columns = prop
             if self.data.index.duplicated().any():
                 self.data.reset_index(drop=True, inplace=True)
@@ -509,9 +667,9 @@ class Widget(OWWidget):
             if radio_button.isChecked():
                 # print('选中的选项是:', radio_button.text())
                 self.suanfa = radio_button.text()
-        print('suanfa:',self.suanfa)
+        print('suanfa:', self.suanfa)
 
-    def populateTable(self , data:list):
+    def populateTable(self, data: list):
         self.MDtable.setRowCount(len(data))
         for row, item in enumerate(data):
             cell = QTableWidgetItem(item)
@@ -520,11 +678,9 @@ class Widget(OWWidget):
         # 设置水平表头
         self.MDtable.setHorizontalHeaderLabels(['model'])
         # 设置垂直表头
-        self.MDtable.setVerticalHeaderLabels(['model {}'.format(i) for i in range(1, len(data)+1)])
+        self.MDtable.setVerticalHeaderLabels(['model {}'.format(i) for i in range(1, len(data) + 1)])
 
         self.MDtable.resizeColumnsToContents()
-
-
 
     # def select_file_or_folder(self):
     #     if self.radio_button_single.isChecked():
@@ -542,8 +698,7 @@ class Widget(OWWidget):
     #             self.ABC = self.read_excel_files_in_folder(folder_dialog)
     #             self.data = self.get_common_columns(folder_dialog)
 
-
-    def read_excel_files_in_folder(self , folder_path):
+    def read_excel_files_in_folder(self, folder_path):
         all_dfs = []
         for filename in os.listdir(folder_path):
             if filename.endswith('.xlsx'):
@@ -551,8 +706,6 @@ class Widget(OWWidget):
                 df = pd.read_excel(file_path)
                 all_dfs.append(df)
         return pd.concat(all_dfs, ignore_index=True)
-
-
 
     def labelSettingBtnCallback(self):
 
@@ -588,7 +741,6 @@ class Widget(OWWidget):
         self.combo_box.currentIndexChanged.connect(self.combo_box_currentIndexChanged)
         layout.addWidget(self.combo_box)
 
-
         llb9 = QLabel('选择深度属性（唯一）')
         layout.addWidget(llb9)
 
@@ -602,7 +754,6 @@ class Widget(OWWidget):
         # layout.addWidget(confirm_button)
 
         self.new_window.show()
-
 
     def checkbox_state_changed(self, state):
         sender = self.sender()
@@ -624,13 +775,7 @@ class Widget(OWWidget):
         print("深度索引:", self.combo_box9.currentText())
         self.depth_index = self.combo_box9.currentText()
 
-
-
     ###################################################################################
-
-
-
-
 
     # def save(self, result) -> str:
     #     """保存文件"""
@@ -645,13 +790,12 @@ class Widget(OWWidget):
     #     result.to_excel(os.path.join(outputPath, filename), index=False)
     #     return filename
 
-
     def merge_metas(self, table: Table, df: pd.DataFrame):
         """防止meta数据丢失"""
         for i, col in enumerate(table.domain.metas):
             df[col.name] = table.metas[:, i]
 
-    def get_common_columns(self , folder_path):
+    def get_common_columns(self, folder_path):
         all_columns = set()  # 用于存放所有表格的表头
         common_columns = set()  # 用于存放所有表格都含有的表头
 
@@ -673,10 +817,6 @@ class Widget(OWWidget):
         common_columns = list(common_columns & all_columns)
 
         return common_columns
-
-
-
-
 
 
 if __name__ == "__main__":

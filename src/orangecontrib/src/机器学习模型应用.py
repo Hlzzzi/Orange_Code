@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import QHeaderView
 
 from .pkg import TableUtil
 from .pkg.zxc import Utils_w
+from ..payload_manager import PayloadManager
 
 
 class Widget(OWWidget):
@@ -28,6 +29,8 @@ class Widget(OWWidget):
         models = Input("Models", dict, auto_summary=False)
         # 单文件加载
         data = Input("Data", list, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
+        data_payload = Input("应用数据payload", dict, auto_summary=False)
 
     @Inputs.models
     def set_models(self, data):
@@ -45,9 +48,42 @@ class Widget(OWWidget):
         else:
             self.data = None
 
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+        self.input_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='apply', task='predict', data_kind='table_batch')
+        print('payload 输入成功::::', PayloadManager.summary(self.input_payload))
+        models = self.input_payload.get('models', {}) or {}
+        self.models = models.get('selected') or models.get('all') or models.get('best') or {}
+        if self.data_payload is None:
+            df = PayloadManager.get_single_dataframe(self.input_payload, role='test') or PayloadManager.get_single_dataframe(self.input_payload)
+            if df is None:
+                table = PayloadManager.get_single_table(self.input_payload, role='test') or PayloadManager.get_single_table(self.input_payload)
+                if table is not None:
+                    df = Utils_w.tableToDataFrame(table)
+            self.data = df
+        self.read()
+
+    @Inputs.data_payload
+    def set_data_payload(self, payload):
+        if not payload:
+            self.data_payload = None
+            return
+        self.data_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='apply', task='predict', data_kind='table_batch')
+        df = PayloadManager.get_single_dataframe(self.data_payload)
+        if df is None:
+            table = PayloadManager.get_single_table(self.data_payload)
+            if table is not None:
+                df = Utils_w.tableToDataFrame(table)
+        self.data = df
+        self.read()
+
     class Outputs:  # TODO
         # if there are two or more outputs, default=True marks the default output
         outputDict = Output("Output", dict, auto_summary=False)
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -75,6 +111,27 @@ class Widget(OWWidget):
 
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
 
+
+    def _build_output_payload(self, output):
+        if self.input_payload is not None and self.data_payload is not None:
+            payload = PayloadManager.merge_payloads(node_name=self.name, input_payloads={'workflow': self.input_payload, 'apply_data': self.data_payload}, node_type='apply', task='predict', data_kind='table_batch')
+        elif self.input_payload is not None:
+            payload = PayloadManager.clone_payload(self.input_payload)
+            payload['node_name'] = self.name
+            payload['node_type'] = 'apply'
+            payload['task'] = 'predict'
+        elif self.data_payload is not None:
+            payload = PayloadManager.clone_payload(self.data_payload)
+            payload['node_name'] = self.name
+            payload['node_type'] = 'apply'
+            payload['task'] = 'predict'
+        else:
+            payload = PayloadManager.empty_payload(node_name=self.name, node_type='apply', task='predict', data_kind='table_batch')
+        payload = PayloadManager.set_result(payload, predictions=output, extra={'output_keys': list(output.keys())})
+        payload = PayloadManager.update_context(payload, workflow_stage='apply')
+        payload['legacy'].update({'outputDict': output})
+        return payload
+
     def run(self):
         output = {}
         for target in self.targetModels.keys():
@@ -88,6 +145,7 @@ class Widget(OWWidget):
             output[filename] = self.prediction(self.data, target, models)
         self.save(output)
         self.Outputs.outputDict.send(output)
+        self.Outputs.payload.send(self._build_output_payload(output))
         self.close()
 
     def read(self):
@@ -187,6 +245,8 @@ class Widget(OWWidget):
         self.modelSelected = {}
         self.data = None
         self.models = None
+        self.input_payload = None
+        self.data_payload = None
 
         # 初始化布局
         layout = Utils_w.getUniversalLayout()

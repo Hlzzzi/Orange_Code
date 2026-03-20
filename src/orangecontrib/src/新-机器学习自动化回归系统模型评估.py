@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import QHBoxLayout, QHeaderView, QTableWidgetItem, QVBoxLay
 from .pkg import TableUtil
 from .pkg.Regressor_ML import MachineLearningRegressionEvaluating as mre
 from .pkg.zxc import Utils_w
+from ..payload_manager import PayloadManager
 
 
 class Widget(OWWidget):
@@ -34,6 +35,7 @@ class Widget(OWWidget):
         data = Input("Data", list, auto_summary=False)
         data_table = Input("DataTable", Table, auto_summary=False)
         data_dict = Input("DataDict", dict, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
 
     @Inputs.models
     def set_models(self, data):
@@ -67,9 +69,27 @@ class Widget(OWWidget):
         else:
             self.data = None
 
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+        self.input_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='eval', task='evaluate', data_kind='model_bundle')
+        print('payload 输入成功::::', PayloadManager.summary(self.input_payload))
+        models = self.input_payload.get('models', {}) or {}
+        self.models = models.get('selected') or models.get('all') or models.get('best') or {}
+        df = PayloadManager.get_single_dataframe(self.input_payload, role='test') or PayloadManager.get_single_dataframe(self.input_payload)
+        if df is None:
+            table = PayloadManager.get_single_table(self.input_payload, role='test') or PayloadManager.get_single_table(self.input_payload)
+            if table is not None:
+                df = Utils_w.tableToDataFrame(table)
+        self.data = df
+        self.read()
+
     class Outputs:
         # if there are two or more outputs, default=True marks the default output
         models = Output("Selected_Models", dict, auto_summary=False)
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -112,29 +132,45 @@ class Widget(OWWidget):
 
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
 
+
+    def _build_output_payload(self, outputModels):
+        if self.input_payload is not None:
+            payload = PayloadManager.clone_payload(self.input_payload)
+            payload['node_name'] = self.name
+            payload['node_type'] = 'eval'
+            payload['task'] = 'evaluate'
+        else:
+            payload = PayloadManager.empty_payload(node_name=self.name, node_type='eval', task='evaluate', data_kind='model_bundle')
+        payload = PayloadManager.set_models(payload, selected=outputModels, all_models=self.models)
+        payload = PayloadManager.update_context(payload, workflow_stage='evaluate')
+        payload['legacy'].update({'selected_models': outputModels})
+        return payload
+
     def run(self):
         # 模型输出
         outputModels = {}
 
-        # 收集选中的目标
         targets = TableUtil.getTableCheckStateList(self.targetTable.table)["checked"]
-        # 收集选中的评价指标
         scoreTypes = TableUtil.getTableCheckStateList(self.evaluationTable.table)["checked"]
-
+        if not scoreTypes:
+            # 默认至少保留一个指标，保证直连可运行
+            scoreTypes = [next(iter(self.score_types.keys()))]
         # 选中的模型
         for target in targets:
             for model in self.modelSelectState[target].keys():
                 if self.modelSelectState[target][model]:
-                    key, model = self.getModel(target, model)
-                    outputModels[key] = model
-
-        # 输出
+                    key, model_obj = self.getModel(target, model)
+                    outputModels[key] = model_obj
+        if not outputModels:
+            # 兜底：若没有手动取消/选择，默认输出全部模型
+            for target in self.targetModels.keys():
+                for model in self.targetModels[target].keys():
+                    key, model_obj = self.getModel(target, model)
+                    outputModels[key] = model_obj
         self.Outputs.models.send(outputModels)
-
-        # 保存
         print(targets, scoreTypes)
         self.save(targets, scoreTypes)
-
+        self.Outputs.payload.send(self._build_output_payload(outputModels))
         self.close()
 
     def read(self):
@@ -185,7 +221,7 @@ class Widget(OWWidget):
 
             if self.modelSelectState.get(target) is None:
                 self.modelSelectState[target] = {}
-            self.modelSelectState[target][model] = False
+            self.modelSelectState[target][model] = True
 
         self.fillTargetTable(self.targetModels.keys())
 
@@ -264,6 +300,7 @@ class Widget(OWWidget):
         super().__init__()
         self.models = None
         self.data = None
+        self.input_payload = None
         self.targetModels = {}
         self.modelFeatures = {}
         self.modelSelectState = {}
