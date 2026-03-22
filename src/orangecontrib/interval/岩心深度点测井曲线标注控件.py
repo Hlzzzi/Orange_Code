@@ -15,6 +15,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QCheckBox, QAbstractItemView
 
 from .pkg import MyWidget
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 class cengduan(OWWidget):
@@ -30,13 +32,15 @@ class cengduan(OWWidget):
     resizing_enabled = True
 
     class Inputs:  # TODO:输入
-        # 数据：通过【测井数据加载】控件【单文件选择】功能载入
+        # 老接口保留
         dataTOC = Input("目标类数据", list, auto_summary=False)
-        # 数据：通过【测井数据加载】控件【文件夹选择】功能载入
         dataQX = Input("曲线数据", list, auto_summary=False)
         dataQXPH = Input("曲线路径", str, auto_summary=False)
-        # 钻测录数据文件名：通过修改后（增加了文件名list输出）的【测井数据加载】控件载入
         dataQX_names = Input("曲线井名", list, auto_summary=False)
+
+        # 新增标准 payload 输入
+        payloadTOC = Input("目标类数据Payload", dict, auto_summary=False)
+        payloadQX = Input("曲线数据Payload", dict, auto_summary=False)
 
     dataTOC: list = None
     dataQX: list = None  # list[pd.DataFrame]
@@ -48,77 +52,128 @@ class cengduan(OWWidget):
     propertyDict: dict = None  # 属性字典
 
     dataTOCPH: str = None
+    payloadTOC_cache = None
+    payloadQX_cache = None
+
+    def _coerce_first_df(self, data):
+        if not data:
+            return None
+        obj = data[0]
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+        if isinstance(obj, pd.DataFrame):
+            return obj.copy()
+        return None
+
+    def _coerce_df_list(self, data):
+        result = []
+        originals = []
+        if not data:
+            return result, originals
+        for obj in data:
+            if isinstance(obj, Table):
+                df = table_to_frame(obj)
+                self.merge_metas(obj, df)
+                result.append(df)
+                originals.append(obj)
+            elif isinstance(obj, pd.DataFrame):
+                result.append(obj.copy())
+                originals.append(obj.copy())
+        return result, originals
 
     @Inputs.dataTOC
     def set_dataYCZ(self, data):
-
         if data:
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.dataTOC: pd.DataFrame = df
-                self.original_dataYCZ = data
-                # print('这是YCZ原始数据',self.original_dataYCZ)
-                # print('这是YCZ数据', self.dataYCZ)
-            elif isinstance(data[0], pd.DataFrame):
-                self.dataTOC: pd.DataFrame = data[0]
-                self.original_dataYCZ = data
-                # print('这是YCZ原始数据',self.original_dataYCZ)
-                # print('这是YCZ数据', self.dataYCZ)
+            self.dataTOC = self._coerce_first_df(data)
+            self.original_dataYCZ = data
             self.read()
-
-            # 保存数据到本地 然后读取路径
-            self.dataTOC.to_excel('./config_Cengduan/dataTOC.xlsx')
-
-            # 获取保存路径
-            self.dataTOCPH = os.path.abspath('./config_Cengduan/dataTOC.xlsx')
-
+            if self.dataTOC is not None:
+                os.makedirs('./config_Cengduan', exist_ok=True)
+                self.dataTOC.to_excel('./config_Cengduan/dataTOC.xlsx', index=False)
+                self.dataTOCPH = os.path.abspath('./config_Cengduan/dataTOC.xlsx')
         else:
             self.dataTOC = None
 
     @Inputs.dataQX
     def set_dataZCL(self, data):
-
         if data:
-            self.dataQX: list = []
-            self.original_dataZCL = []  # 保存原始数据列表
-            for table in data:
-                df: pd.DataFrame = None
-                if isinstance(table, Table):
-                    df: pd.DataFrame = table_to_frame(table)  # 将输入的Table转换为DataFrame
-                    self.merge_metas(table, df)  # 防止meta数据丢失
-                elif isinstance(table, pd.DataFrame):
-                    df: pd.DataFrame = table
-                self.original_dataZCL.append(table)
-                # print('这是ZCL原始数据',self.original_dataZCL)
-                self.dataQX.append(df)
+            self.dataQX, self.original_dataZCL = self._coerce_df_list(data)
             self.read()
         else:
             self.dataQX = None
-
-    dataQXPH: str = None
+            self.original_dataZCL = []
 
     @Inputs.dataQXPH
     def set_dataZCLPH(self, data):
-        if data:
-            self.dataQXPH: str = data
-        else:
-            self.dataQXPH = None
+        self.dataQXPH = data if data else None
 
     @Inputs.dataQX_names
     def set_dataZCL_names(self, data):
         if data:
-            self.dataQX_names: list = data
+            self.dataQX_names = list(data)
             self.read()
         else:
             self.dataQX_names = None
 
+    @Inputs.payloadTOC
+    def set_payloadTOC(self, payload):
+        if not payload:
+            self.payloadTOC_cache = None
+            return
+        self.payloadTOC_cache = PayloadManager.ensure_payload(
+            payload, node_name=self.name, node_type='merge', task='annotate', data_kind='linked_table'
+        )
+        df = PayloadManager.get_single_dataframe(self.payloadTOC_cache)
+        if df is None:
+            table = PayloadManager.get_single_table(self.payloadTOC_cache)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+        self.dataTOC = df
+        self.original_dataYCZ = [df.copy()] if df is not None else None
+        if self.dataTOC is not None:
+            os.makedirs('./config_Cengduan', exist_ok=True)
+            self.dataTOC.to_excel('./config_Cengduan/dataTOC.xlsx', index=False)
+            self.dataTOCPH = os.path.abspath('./config_Cengduan/dataTOC.xlsx')
+        self.read()
+
+    @Inputs.payloadQX
+    def set_payloadQX(self, payload):
+        if not payload:
+            self.payloadQX_cache = None
+            return
+        self.payloadQX_cache = PayloadManager.ensure_payload(
+            payload, node_name=self.name, node_type='merge', task='annotate', data_kind='linked_table'
+        )
+        dfs = PayloadManager.get_dataframes(self.payloadQX_cache)
+        tables = PayloadManager.get_tables(self.payloadQX_cache)
+        if dfs:
+            self.dataQX = [df.copy() for df in dfs]
+            self.original_dataZCL = [df.copy() for df in dfs]
+        elif tables:
+            self.dataQX = []
+            self.original_dataZCL = []
+            for table in tables:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+                self.dataQX.append(df)
+                self.original_dataZCL.append(table)
+        else:
+            self.dataQX = []
+            self.original_dataZCL = []
+        self.dataQX_names = [os.path.splitext(str(x))[0] for x in PayloadManager.get_file_names(self.payloadQX_cache)]
+        paths = PayloadManager.get_file_paths(self.payloadQX_cache)
+        if paths:
+            first = paths[0]
+            self.dataQXPH = os.path.dirname(first) if os.path.isfile(first) else first
+        self.read()
     class Outputs:  # TODO:输出
-        # if there are two or more outputs, default=True marks the default output
-        table = Output("数据(Data)", Table, replaces=['Data'])  # 纯数据Table输出，用于与Orange其他部件交互
-        # table = Output("数据表", Orange.data.Table)
-        data = Output("数据List", list, auto_summary=False)  # 输出给控件
-        raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
+        table = Output("数据(Data)", Table, replaces=['Data'])
+        data = Output("数据List", list, auto_summary=False)
+        raw = Output("数据Dict", dict, auto_summary=False)
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -183,21 +238,81 @@ class cengduan(OWWidget):
             self.warning('请先输入数据')
             return
 
-        # 打印输出井名 两个深度属性 特征列表
         print('TOC井名:', self.JM)
         print('深度TOC:', self.caseingdepth)
         print('深度ZCL:', self.logdepth)
         print('特征:', self.TZlist)
         print('路径QX', self.dataQXPH)
         print('路径TOC', self.dataTOCPH)
+
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_annotation_task,
+            self._on_run_finished,
+            DFYCZ=self.dataTOC.copy(),
+            DFZCL=self.tzZCL(),
+            YZC_wellname=self.JM,
+            litho_top=self.caseingdepth,
+            litho_bot=self.logdepth,
+            litho_name=self.Mubiao,
+            logdepthindex='depth'
+        )
+        if not started:
+            self.warning('当前已有任务在运行，请稍后再试')
+
+    def _run_annotation_task(self, *, DFYCZ, DFZCL, YZC_wellname, litho_top, litho_bot, litho_name,
+                             logdepthindex, setProgress=None, isCancelled=None):
+        if setProgress:
+            setProgress(5)
+        if isCancelled and isCancelled():
+            return {'cancelled': True}
+        result = self.lithology_annotation(DFYCZ, DFZCL, YZC_wellname=YZC_wellname, litho_top=litho_top,
+                                           litho_bot=litho_bot, litho_name=litho_name, logdepthindex=logdepthindex)
+        if setProgress:
+            setProgress(90)
+        return {'cancelled': False, 'result_df': result}
+
+    def _resolve_saved_file_path(self, filename: str) -> str:
+        if not filename:
+            return ''
+        outputPath = self.default_output_path + self.output_super_folder
+        if self.save_radio == 0:
+            return os.path.join(outputPath, filename)
+        elif self.save_radio == 1 and self.save_path:
+            return os.path.join(self.save_path, filename)
+        return ''
+
+    def _on_run_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            print(e)
+            self.error('岩心深度点测井曲线标注运行失败，请检查井名和深度设置')
+            return
+        if not task_result or task_result.get('cancelled'):
+            self.warning('任务已取消')
+            return
+        result = task_result.get('result_df')
+        if result is None or len(result) == 0:
+            self.error('未生成结果数据')
+            return
+        filename = self.output_file_name
+        self.save(result)
+        result_table = table_from_frame(result)
+        self.Outputs.table.send(result_table)
+        self.Outputs.data.send([result])
+        self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
+        output_payload = self.build_output_payload(result_df=result, result_table=result_table, saved_filename=filename)
+        self.Outputs.payload.send(output_payload)
     def read(self):
         """读取数据方法"""
         if self.dataTOC is None or self.dataQX is None or self.dataQX_names is None:
             return
 
         self.dataZCLDict = {}
-        for i in range(len(self.dataQX)):
-            self.dataZCLDict[self.dataQX_names[i]] = self.dataQX[i]
+        for i in range(min(len(self.dataQX), len(self.dataQX_names))):
+            key = os.path.splitext(str(self.dataQX_names[i]))[0]
+            self.dataZCLDict[key] = self.dataQX[i]
 
         self.selectedWellName = []
         self.propertyDict = {}
@@ -469,15 +584,21 @@ class cengduan(OWWidget):
         self.nameTable.clearContents()
         self.nameTable.setRowCount(len(names))
 
-        true_rows = []  # 存储符合条件的行索引
+        # 清空旧的全选复选框引用，避免 MyWidget.QHeaderViewWithCheckBox 持有已删除对象
+        try:
+            self.header.all_check.clear()
+        except Exception:
+            pass
+
+        normalized_qx_names = {os.path.splitext(str(x))[0] for x in (self.dataQX_names or [])}
 
         for i, name in enumerate(names):
-            cbox = QCheckBox()
-            if name in self.dataQX_names:
-                cbox.setChecked(True)  # 将复选框默认选择为 True
-                true_rows.append(i)  # 将符合条件的行索引添加到列表中
+            norm_name = os.path.splitext(str(name))[0]
+            matched = norm_name in normalized_qx_names
 
-            cbox.stateChanged.connect(lambda state, wellname=name: self.wellSelected(state, wellname))  # 选中状态改变
+            cbox = QCheckBox()
+            cbox.setChecked(matched)
+            cbox.stateChanged.connect(lambda state, wellname=norm_name: self.wellSelected(state, wellname))
             self.header.addCheckBox(cbox)
 
             hLayout = QHBoxLayout()
@@ -486,16 +607,20 @@ class cengduan(OWWidget):
             widget = QWidget()
             widget.setLayout(hLayout)
             self.nameTable.setCellWidget(i, 0, widget)
-            self.nameTable.setItem(i, 1, QTableWidgetItem(name))
-            if name in self.dataQX_names:
+            self.nameTable.setItem(i, 1, QTableWidgetItem(str(name)))
+
+            if matched and norm_name in self.dataZCLDict:
                 self.nameTable.setItem(i, 2, QTableWidgetItem('true'))
                 previewButton = QPushButton('查看')
-                previewButton.clicked.connect(lambda state, wellname=name: self.showTable(self.dataZCLDict[wellname]))
+                previewButton.clicked.connect(lambda state, wellname=norm_name: self.showTable(self.dataZCLDict[wellname]))
                 self.nameTable.setCellWidget(i, 3, previewButton)
             else:
                 self.nameTable.setItem(i, 2, QTableWidgetItem('false'))
 
         self.nameTable.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+
+        # 默认同步当前已匹配井名
+        self.selectedWellName = [os.path.splitext(str(n))[0] for n in names if os.path.splitext(str(n))[0] in normalized_qx_names]
 
     def typeChanged(self, index: str, text, prop):
         """属性数值类型改变回调方法"""
@@ -518,20 +643,39 @@ class cengduan(OWWidget):
     def wellSelected(self, state, wellname):
         """井名选中状态改变回调"""
         if state == Qt.Checked:
-            self.selectedWellName.append(wellname)
+            if wellname not in self.selectedWellName:
+                self.selectedWellName.append(wellname)
         else:
-            self.selectedWellName.remove(wellname)
+            if wellname in self.selectedWellName:
+                self.selectedWellName.remove(wellname)
 
     def selectAllCallback(self):
         """全选按钮回调方法"""
-        if self.selectedWellName is None or len(self.header.all_check) < 1:
+        if self.selectedWellName is None:
             return
-        if self.header.all_check[0].isChecked():
-            self.selectedWellName = []
-            for i in range(self.nameTable.rowCount()):
-                self.selectedWellName.append(self.nameTable.item(i, 1).text())
-        else:
-            self.selectedWellName.clear()
+
+        checked = False
+        try:
+            if self.header.all_check and self.header.all_check[0] is not None:
+                checked = self.header.all_check[0].isChecked()
+        except Exception:
+            pass
+
+        self.selectedWellName = []
+        for i in range(self.nameTable.rowCount()):
+            item = self.nameTable.item(i, 1)
+            if item is None:
+                continue
+            norm_name = os.path.splitext(str(item.text()))[0]
+            cell_widget = self.nameTable.cellWidget(i, 0)
+            if cell_widget is not None:
+                cbox = cell_widget.findChild(QCheckBox)
+                if cbox is not None:
+                    cbox.blockSignals(True)
+                    cbox.setChecked(checked)
+                    cbox.blockSignals(False)
+            if checked:
+                self.selectedWellName.append(norm_name)
 
     def showTable(self, data: pd.DataFrame):
         """显示数据"""
@@ -564,8 +708,64 @@ class cengduan(OWWidget):
         else:
             self.save_path = None
 
+    def build_output_payload(self, *, result_df, result_table, saved_filename):
+        input_payloads = {}
+        if self.payloadTOC_cache is not None:
+            input_payloads['toc'] = self.payloadTOC_cache
+        if self.payloadQX_cache is not None:
+            input_payloads['curve'] = self.payloadQX_cache
+        if input_payloads:
+            output_payload = PayloadManager.merge_payloads(
+                node_name=self.name,
+                input_payloads=input_payloads,
+                node_type='merge',
+                task='annotate',
+                data_kind='linked_table'
+            )
+        else:
+            output_payload = PayloadManager.empty_payload(
+                node_name=self.name, node_type='merge', task='annotate', data_kind='linked_table'
+            )
+        saved_file_path = self._resolve_saved_file_path(saved_filename)
+        item = PayloadManager.make_item(
+            file_path=saved_file_path,
+            orange_table=result_table,
+            dataframe=result_df,
+            sheet_name='',
+            role='main',
+            meta={
+                'widget': self.name,
+                'section_wellname': self.JM,
+                'litho_name': self.Mubiao,
+                'curve_depth': self.logdepth,
+                'toc_depth': self.caseingdepth,
+                'selected_wells': list(self.selectedWellName) if self.selectedWellName else []
+            }
+        )
+        output_payload = PayloadManager.replace_items(output_payload, [item], data_kind='linked_table')
+        output_payload = PayloadManager.set_result(output_payload, orange_table=result_table, dataframe=result_df,
+                                                   extra={'saved_file_name': saved_filename,
+                                                          'saved_file_path': saved_file_path})
+        output_payload = PayloadManager.update_context(output_payload,
+                                                       toc_wellname=self.JM,
+                                                       toc_depth=self.caseingdepth,
+                                                       curve_depth=self.logdepth,
+                                                       target=self.Mubiao,
+                                                       features=list(self.TZlist),
+                                                       qx_path=self.dataQXPH or '',
+                                                       toc_path=self.dataTOCPH or '')
+        output_payload['legacy'].update({
+            'data_list': [result_df],
+            'data_dict': {'maindata': result_df, 'target': [], 'future': [], 'filename': saved_filename}
+        })
+        return output_payload
+
     def __init__(self):
         super().__init__()
+        self.payloadTOC_cache = None
+        self.payloadQX_cache = None
+        self.original_dataYCZ = None
+        self.original_dataZCL = []
         self.data = None
         pd.set_option('mode.chained_assignment', None)  # TODO: 关闭代码中所有SettingWithCopyWarning
 
@@ -659,15 +859,16 @@ class cengduan(OWWidget):
     ##调整数据
     def tzZCL(self):
         DFZCL = {}
-        data1 = []
-        for wj in range(len(self.dataQX_names)):
-            data1.append(self.original_dataZCL[wj])
-
-        for x in range(len(data1)):
-            dfsj = pd.DataFrame(data1[x])
-            dfsj.columns = ['depth', 'GR', 'SP', 'LLD', 'MSFL', 'LLS', 'AC', 'DEN', 'CNL']
+        if self.dataQX is None or self.dataQX_names is None:
+            return DFZCL
+        expected_cols = ['depth', 'GR', 'SP', 'LLD', 'MSFL', 'LLS', 'AC', 'DEN', 'CNL']
+        for x in range(min(len(self.dataQX), len(self.dataQX_names))):
+            dfsj = self.dataQX[x].copy()
+            if len(dfsj.columns) == 9:
+                current_cols = [str(c) for c in dfsj.columns]
+                if current_cols != expected_cols:
+                    dfsj.columns = expected_cols
             DFZCL[self.dataQX_names[x]] = dfsj
-        # print(DFZCL)
         return DFZCL
 
     def create_path(self, path):

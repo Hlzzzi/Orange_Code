@@ -13,7 +13,10 @@ from Orange.widgets.widget import OWWidget, Input, Output
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QFileDialog, QSplitter, QPushButton, QHeaderView, QTabWidget, QComboBox, QTableWidgetItem, QWidget, \
-    QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel,QAbstractItemView,QRadioButton,QButtonGroup,QGroupBox,QApplication,QListWidget
+    QCheckBox, QLineEdit, QTextBrowser, QVBoxLayout, QLabel, QAbstractItemView, QRadioButton, QButtonGroup, QGroupBox, \
+    QApplication, QListWidget
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 class Widget(OWWidget):
@@ -36,7 +39,7 @@ class Widget(OWWidget):
     State_colsAttr = []
     State_colAll = []  # 列表元素：每个文件对应的全选框的选取状态（T/F）
     waitdata = []
-    
+
     selectedWellName: list = None  # 选中的井名列表
     currentWellNameCol_YLD: str = None  # 压裂段井名索引
     currentWellNameCol_WDZ: str = None  # 微地震井名索引
@@ -44,25 +47,21 @@ class Widget(OWWidget):
     namedata = None
     keynames = None
 
-
     datatype = None
     depth_index = None
     suanfa = None
     modeltype = None
     ABC = None
 
-
     class Inputs:  # TODO:输入
-        data = Input("数据输入", list, auto_summary=False)  # 输入数据
-
-        datatable = Input("表格", Table, auto_summary=False)  # 输入表格
-
-        # dataPH = Input("数据路径", str, auto_summary=False)  # 输入数据
-
-
+        data = Input("数据输入", list, auto_summary=False)
+        datatable = Input("表格", Table, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
 
     modelPH = None
     dataPH = None
+    input_payload = None
+
     # @Inputs.data
     # def set_data(self, data):
     #     if data is not None:
@@ -70,54 +69,45 @@ class Widget(OWWidget):
     #         print('data:',data)
     #         self.read()
 
+    def _save_config_input(self):
+        folder_path = './config_Cengduan/智能聚类'
+        os.makedirs(folder_path, exist_ok=True)
+        self.dataPH = os.path.join(folder_path, '智能聚类配置文件.xlsx')
+        print('保存配置文件到:', self.dataPH)
+        self.data.to_excel(self.dataPH, index=False)
 
-
-
+    def _coerce_to_dataframe(self, data):
+        if data is None:
+            return None
+        obj = data[0] if isinstance(data, list) and len(data) > 0 else data
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+        if isinstance(obj, pd.DataFrame):
+            return obj.copy()
+        return None
 
     @Inputs.data
     def set_data(self, data):
         if data:
             print("数据输入成功::::", data)
-            # self.ALLdata = data
-
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.data: pd.DataFrame = df
-            elif isinstance(data[0], pd.DataFrame):
-                self.data: pd.DataFrame = data[0]
-
-            # 创建一个文件夹来保存 Excel 文件
-            folder_path = './config_Cengduan/智能聚类'
-            os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-            # 保存到文件夹中的 Excel 文件
-            self.dataPH = os.path.join(folder_path, '智能聚类配置文件.xlsx')
-            print('保存配置文件到:', self.dataPH)
-            self.data.to_excel(self.dataPH, index=False)
-
-            self.lognames = []
-            self.selectedWellName = []
-            self.propertyDict = {}
-            self.check_file_or_folder1(self.dataPH)
+            self.data = self._coerce_to_dataframe(data)
+            if self.data is not None:
+                self._save_config_input()
+                self.lognames = []
+                self.selectedWellName = []
+                self.propertyDict = {}
+                self.check_file_or_folder1(self.dataPH)
         else:
             self.data = None
-
 
     @Inputs.datatable
     def set_datatable(self, data):
         self.data_orange = data
         if data:
             self.data = table_to_frame(data)
-            # 创建一个文件夹来保存 Excel 文件
-            folder_path = './config_Cengduan/智能聚类'
-            os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-            # 保存到文件夹中的 Excel 文件
-            self.dataPH = os.path.join(folder_path, '智能聚类配置文件.xlsx')
-            print('保存配置文件到:', self.dataPH)
-            self.data.to_excel(self.dataPH, index=False)
-
+            self._save_config_input()
             self.lognames = []
             self.selectedWellName = []
             self.propertyDict = {}
@@ -125,33 +115,51 @@ class Widget(OWWidget):
         else:
             self.data = None
 
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            self.data = None
+            return
+        self.input_payload = PayloadManager.ensure_payload(
+            payload, node_name=self.name, node_type='cluster', task='cluster', data_kind='table_batch'
+        )
+        print('payload 输入成功::::', PayloadManager.summary(self.input_payload))
+        primary_df = PayloadManager.get_single_dataframe(self.input_payload)
+        primary_table = PayloadManager.get_single_table(self.input_payload)
+        if primary_df is not None:
+            self.data = primary_df.copy()
+        elif primary_table is not None:
+            self.data = table_to_frame(primary_table)
+            self.merge_metas(primary_table, self.data)
+        else:
+            self.data = None
+        if self.data is not None:
+            self._save_config_input()
+            self.lognames = []
+            self.selectedWellName = []
+            self.propertyDict = {}
+            self.check_file_or_folder1(self.dataPH)
 
-    def check_file_or_folder1(self,path):
+    def check_file_or_folder1(self, path):
         if os.path.isfile(path):
             self.datatype = 'singfile'
-            print('self.datatype:',self.datatype)
+            print('self.datatype:', self.datatype)
             self.data = pd.read_excel(path)
             self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
         elif os.path.isdir(path):
             self.datatype = 'morefile'
-            print('self.datatype:',self.datatype)
+            print('self.datatype:', self.datatype)
             self.data = self.read_excel_files_in_folder(path)
             self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
         else:
             print(f"{path} 不是有效的文件或文件夹路径。")
 
-
-
-
-
     class Outputs:  # TODO:输出
-        data = Output("数据", list, auto_summary=False)  # 输出数据
-        dataPH = Output("数据路径", str, auto_summary=False)  # 输出数据
-        table = Output("表格", Table,auto_summary=False)  # 输出表格
-
-
-
-
+        data = Output("数据", list, auto_summary=False)
+        dataPH = Output("数据路径", str, auto_summary=False)
+        table = Output("表格", Table, auto_summary=False)
+        payload = Output("payload", dict, auto_summary=False)
 
     save_radio = Setting(2)
 
@@ -163,7 +171,8 @@ class Widget(OWWidget):
                           '底深']  # 这些列名(小写)将自动识别为底深列
     depth_col_alias = ['depth', 'dept', 'dept', 'dep', 'md', '深度']  # 这些列名(小写)将自动识别为深度列
 
-    TZ_col_alias = ['gr', 'sp', 'lld', 'msfl', 'lls', 'ac', 'den', 'cnl','mjbh', 'tsl_bzc', 'pjzj_xztsj', 'bl_jsfxj', 'psjvscdzsj', 'djyjfxjzb']  # 这些列名(大写)将自动识别为特征
+    TZ_col_alias = ['gr', 'sp', 'lld', 'msfl', 'lls', 'ac', 'den', 'cnl', 'mjbh', 'tsl_bzc', 'pjzj_xztsj', 'bl_jsfxj',
+                    'psjvscdzsj', 'djyjfxjzb']  # 这些列名(大写)将自动识别为特征
 
     MB_col_alias = ['岩性', '油层组', 'Litho', 'litho']
 
@@ -186,60 +195,147 @@ class Widget(OWWidget):
     dataYLD_type_list: list = ['常规数值', '指数数值', '文本', '其他']  #
     dataYLD_funcType_list: list = ['井名索引', '层号索引', '顶深索引', '底深索引', '深度索引', '目标', '特征', '其他',
                                    '忽略', 'x',
-                                   'y', 'z','None']
+                                   'y', 'z', 'None']
     dataWDZ_type_list: list = ['常规数值', '指数数值', '文本', '其他']  # 微地震数据类型选择列表
     dataWDZ_funcType_list: list = ['井名索引', '层号索引', '顶深索引', '底深索引', '深度索引', '目标', '特征', '其他',
                                    '忽略', 'x',
-                                   'y', 'z','None']
+                                   'y', 'z', 'None']
 
     TextType = ['object', 'category']
     NumType = ['int64', 'float64']
 
     def read(self):
-        keys = self.dataMD.keys()
-        keys = list(keys)
+        data_md = getattr(self, 'dataMD', None)
+        if not isinstance(data_md, dict):
+            return
+        keys = list(data_md.keys())
         # 填充模型表格
         self.populateTable(keys)
 
-
-
     lognames = []
+    lognames = []
+
     def run(self):
-        """【核心入口方法】发送按钮回调"""
         from .pkg import 智能聚类导包 as runmain
-        # data_processing(input_path, features, num=4, input_type='singfile', Algorithm_types=['KMeans', 'Birch'],
-        #                     modetype='默认参数', scoretype='silhouette_score', outpath='cluster_outpath',
-        #                     savetype='.xlsx',
-        #                     pop=50, MaxIter=20)
-        print('self.dataPH:',self.dataPH)
-        print('self.features:',self.lognames)
-        print('self.num:',self.num)
-        print('self.datatype:',self.datatype)
-        print('self.Algorithm_types:',self.Algorithm_types)
-        print('self.modetype:',self.modetype)
-        print('self.scoretype:',self.scoretype)
+        if self.dataPH is None:
+            self.warning('请先输入数据')
+            return
+        if not self.lognames:
+            self.warning('请先设置特征列')
+            return
+        if not self.Algorithm_types:
+            self.warning('请先选择算法')
+            return
+        print('self.dataPH:', self.dataPH)
+        print('self.features:', self.lognames)
+        print('self.num:', self.num)
+        print('self.datatype:', self.datatype)
+        print('self.Algorithm_types:', self.Algorithm_types)
+        print('self.modetype:', self.modetype)
+        print('self.scoretype:', self.scoretype)
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_cluster_task,
+            self._on_run_finished,
+            dataPH=self.dataPH,
+            features=list(self.lognames),
+            num=self.num,
+            datatype=self.datatype,
+            Algorithm_types=list(self.Algorithm_types),
+            modetype=self.modetype,
+            scoretype=self.scoretype
+        )
+        if not started:
+            self.warning('当前已有任务在运行，请稍后再试')
 
-        result = runmain.data_processing(self.dataPH, self.lognames, self.num, self.datatype, self.Algorithm_types, self.modetype, self.scoretype, 50, 20)
+    def _run_cluster_task(self, *, dataPH, features, num, datatype, Algorithm_types, modetype, scoretype,
+                          setProgress=None, isCancelled=None):
+        from .pkg import 智能聚类导包 as runmain
+        if setProgress:
+            setProgress(5)
+        if isCancelled and isCancelled():
+            return {'cancelled': True}
+        result = runmain.data_processing(dataPH, features, num, datatype, Algorithm_types, modetype, scoretype, 50, 20)
+        if setProgress:
+            setProgress(90)
+        return {'cancelled': False, 'result_df': result}
 
-        # 创建一个文件夹来保存 Excel 文件
+    def _resolve_saved_file_path(self, filename: str) -> str:
+        if not filename:
+            return ''
+        outputPath = self.default_output_path + self.output_super_folder
+        if self.save_radio == 0:
+            return os.path.join(outputPath, filename)
+        elif self.save_radio == 1 and self.save_path:
+            return os.path.join(self.save_path, filename)
+        return ''
+
+    def _on_run_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            print(e)
+            self.error('智能聚类运行失败，请检查特征列和参数设置')
+            return
+        if not task_result or task_result.get('cancelled'):
+            self.warning('任务已取消')
+            return
+        result = task_result.get('result_df')
+        if result is None or len(result) == 0:
+            self.error('未生成结果数据')
+            return
         folder_path = './config_Cengduan/智能聚类'
-        os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-        # 保存到文件夹中的 Excel 文件
+        os.makedirs(folder_path, exist_ok=True)
         excel_file_path = os.path.join(folder_path, '智能聚类配置文件.xlsx')
-
-        # # 保存
         filename = self.save(result)
-
         result.to_excel(excel_file_path, index=False)
-
-
-        # # # 发送
-        self.Outputs.table.send(table_from_frame(result))
+        result_table = table_from_frame(result)
+        self.Outputs.table.send(result_table)
         self.Outputs.data.send([result])
         self.Outputs.dataPH.send(excel_file_path)
+        output_payload = self.build_output_payload(result_df=result, result_table=result_table,
+                                                   saved_filename=filename, saved_file_path=excel_file_path)
+        self.Outputs.payload.send(output_payload)
 
-    propertyDict: dict = None  # 属性字典
+    def build_output_payload(self, *, result_df, result_table, saved_filename, saved_file_path):
+        if self.input_payload is not None:
+            output_payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            output_payload = PayloadManager.empty_payload(
+                node_name=self.name, node_type='cluster', task='cluster', data_kind='table'
+            )
+        item = PayloadManager.make_item(
+            file_path=saved_file_path,
+            orange_table=result_table,
+            dataframe=result_df,
+            sheet_name='',
+            role='main',
+            meta={
+                'widget': self.name,
+                'features': list(self.lognames),
+                'num': self.num,
+                'algorithms': list(self.Algorithm_types),
+                'modetype': self.modetype,
+                'scoretype': self.scoretype,
+            }
+        )
+        output_payload = PayloadManager.replace_items(output_payload, [item], data_kind='table')
+        output_payload = PayloadManager.set_result(output_payload, orange_table=result_table, dataframe=result_df,
+                                                   extra={'saved_file_name': saved_filename,
+                                                          'saved_file_path': saved_file_path})
+        output_payload = PayloadManager.update_context(output_payload,
+                                                       features=list(self.lognames),
+                                                       num=self.num,
+                                                       datatype=self.datatype,
+                                                       algorithms=list(self.Algorithm_types),
+                                                       modetype=self.modetype,
+                                                       scoretype=self.scoretype)
+        output_payload['legacy'].update({'data_list': [result_df], 'dataPH': saved_file_path})
+        return output_payload
+
+    propertyDict: dict = None
+
+    # 属性字典
     #################### 读取GUI上的配置 ####################
 
     def save(self, result) -> str:
@@ -255,7 +351,7 @@ class Widget(OWWidget):
         result.to_excel(os.path.join(outputPath, filename), index=False)
         return filename
 
-    def get_filenames_without_extension(self,folder_path):
+    def get_filenames_without_extension(self, folder_path):
         filenames = []
         for filename in os.listdir(folder_path):
             # 获取文件的完整路径
@@ -314,7 +410,6 @@ class Widget(OWWidget):
         # # 将容器添加到 QGridLayout 的第二行第二列
         # layout.addWidget(container, 0,0)
 
-
         self.shuxinTB = QVBoxLayout()
 
         self.leftTopTable = QTableWidget()
@@ -329,13 +424,11 @@ class Widget(OWWidget):
         container_suanfa.setLayout(self.shuxinTB)
         layout.addWidget(container_suanfa, 1, 0)
 
-
         self.MDlayout = QVBoxLayout()
         self.MDtable = QTableWidget()
         self.MDtable.setRowCount(0)
         self.MDtable.setColumnCount(1)
         # self.MDlayout.addWidget(self.MDtable)
-
 
         #######################################
         duoxuan = ['KMeans', 'MiniBatchKMeans', 'SpectralClustering', 'SpectralBiclustering', 'SpectralCoclustering',
@@ -389,19 +482,11 @@ class Widget(OWWidget):
         danxuan2_combobox.setLayout(danxuan2_combobox_layout)
         self.MDlayout.addWidget(danxuan2_combobox)
 
-
-
         ########################################
-
 
         container_MD = QWidget()
         container_MD.setLayout(self.MDlayout)
-        layout.addWidget(container_MD, 1 , 1)
-
-
-
-
-
+        layout.addWidget(container_MD, 1, 1)
 
         hLayout = QHBoxLayout()
         gui.widgetBox(self.buttonsArea, orientation=hLayout, box=None)
@@ -419,8 +504,6 @@ class Widget(OWWidget):
 
         self.resize(550, 350)
 
-
-
     ###################################################################################
 
     otherlognames = []
@@ -428,6 +511,7 @@ class Widget(OWWidget):
     Algorithm_types = []
     modetype = '随机网格搜索算法'
     scoretype = 'silhouette_score'
+
     def on_input_changed(self):
         # 获取输入数字框的值
         input_num = self.input_box.text()
@@ -452,27 +536,26 @@ class Widget(OWWidget):
         self.scoretype = selected_danxuan2
         print("评估指标选择:", self.scoretype)
 
-
-    def ignore_function(self,text,prop):
-        # 执行 '忽略' 选项后的处理逻辑
-        # print("忽略选项被选择，执行相应的函数")
+    def ignore_function(self, text, prop):
         if text == '忽略':
-            print("忽略选项被选择，执行相应的函数",prop)
-            columns = prop
-            if self.data.index.duplicated().any():
-                self.data.reset_index(drop=True, inplace=True)
-            self.data = self.data.drop(columns=columns)
+            print("忽略选项被选择，执行相应的函数", prop)
+            if self.data is not None and prop in self.data.columns:
+                if self.data.index.duplicated().any():
+                    self.data.reset_index(drop=True, inplace=True)
+                self.data = self.data.drop(columns=prop)
         elif text == '深度索引':
-            self.depth_index = text
+            self.depth_index = prop
             print("深度索引被选择，执行相应的函数", self.depth_index)
         elif text == '特征':
-            self.lognames.append(prop)
+            if prop not in self.lognames:
+                self.lognames.append(prop)
             print("特征被选择，执行相应的函数", self.lognames)
         elif text == '目标':
             self.target = prop
             print("目标被选择，执行相应的函数", self.target)
         elif text == '其他':
-            self.otherlognames.append(prop)
+            if prop not in self.otherlognames:
+                self.otherlognames.append(prop)
             print("其他被选择，执行相应的函数", self.otherlognames)
 
     def fillPropTable(self, data: pd.DataFrame, tableName: str, table: QTableWidget, typeList: list,
@@ -547,9 +630,9 @@ class Widget(OWWidget):
             if radio_button.isChecked():
                 # print('选中的选项是:', radio_button.text())
                 self.suanfa = radio_button.text()
-        print('suanfa:',self.suanfa)
+        print('suanfa:', self.suanfa)
 
-    def populateTable(self , data:list):
+    def populateTable(self, data: list):
         self.MDtable.setRowCount(len(data))
         for row, item in enumerate(data):
             cell = QTableWidgetItem(item)
@@ -558,7 +641,7 @@ class Widget(OWWidget):
         # 设置水平表头
         self.MDtable.setHorizontalHeaderLabels(['model'])
         # 设置垂直表头
-        self.MDtable.setVerticalHeaderLabels(['model {}'.format(i) for i in range(1, len(data)+1)])
+        self.MDtable.setVerticalHeaderLabels(['model {}'.format(i) for i in range(1, len(data) + 1)])
 
         self.MDtable.resizeColumnsToContents()
 
@@ -590,8 +673,7 @@ class Widget(OWWidget):
     #             self.ABC = self.read_excel_files_in_folder(folder_dialog)
     #             self.data = self.get_common_columns(folder_dialog)
 
-
-    def read_excel_files_in_folder(self , folder_path):
+    def read_excel_files_in_folder(self, folder_path):
         all_dfs = []
         for filename in os.listdir(folder_path):
             if filename.endswith('.xlsx'):
@@ -599,8 +681,6 @@ class Widget(OWWidget):
                 df = pd.read_excel(file_path)
                 all_dfs.append(df)
         return pd.concat(all_dfs, ignore_index=True)
-
-
 
     def labelSettingBtnCallback(self):
 
@@ -636,7 +716,6 @@ class Widget(OWWidget):
         self.combo_box.currentIndexChanged.connect(self.combo_box_currentIndexChanged)
         layout.addWidget(self.combo_box)
 
-
         llb9 = QLabel('选择深度属性（唯一）')
         layout.addWidget(llb9)
 
@@ -650,7 +729,6 @@ class Widget(OWWidget):
         # layout.addWidget(confirm_button)
 
         self.new_window.show()
-
 
     def checkbox_state_changed(self, state):
         sender = self.sender()
@@ -672,13 +750,7 @@ class Widget(OWWidget):
         print("深度索引:", self.combo_box9.currentText())
         self.depth_index = self.combo_box9.currentText()
 
-
-
     ###################################################################################
-
-
-
-
 
     # def save(self, result) -> str:
     #     """保存文件"""
@@ -693,13 +765,12 @@ class Widget(OWWidget):
     #     result.to_excel(os.path.join(outputPath, filename), index=False)
     #     return filename
 
-
     def merge_metas(self, table: Table, df: pd.DataFrame):
         """防止meta数据丢失"""
         for i, col in enumerate(table.domain.metas):
             df[col.name] = table.metas[:, i]
 
-    def get_common_columns(self , folder_path):
+    def get_common_columns(self, folder_path):
         all_columns = set()  # 用于存放所有表格的表头
         common_columns = set()  # 用于存放所有表格都含有的表头
 
@@ -721,10 +792,6 @@ class Widget(OWWidget):
         common_columns = list(common_columns & all_columns)
 
         return common_columns
-
-
-
-
 
 
 if __name__ == "__main__":
