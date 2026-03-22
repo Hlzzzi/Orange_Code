@@ -18,6 +18,8 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QSizePolicy, QScrollArea
 
 from .pkg import 样本类别均衡 as runmain
+from ..payload_manager import PayloadManager
+from .pkg.zxc import ThreadUtils_w
 
 
 class Widget(OWWidget):
@@ -33,11 +35,13 @@ class Widget(OWWidget):
     resizing_enabled = True
 
     class Inputs:  # TODO:输入
-        # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
+        # 老接口保留
         data = Input("数据", list, auto_summary=False)
         filepath = Input("文件路径", str, auto_summary=False)
-        
         dataTable = Input("数据表格", Table, auto_summary=False)
+
+        # 新增标准 payload 输入
+        payload = Input("payload", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -55,40 +59,91 @@ class Widget(OWWidget):
 
     file_name = None
     lognames = []
+    input_payload = None
+    payload_file_names = None
+    payload_file_paths = None
+
+    def _save_config_input(self, df):
+        folder_path = './config_Cengduan/样本类别均衡'
+        os.makedirs(folder_path, exist_ok=True)
+        self.user_inputpath = os.path.join(folder_path, '样本类别均衡配置文件.xlsx')
+        print('保存配置文件到:', self.user_inputpath)
+        df.to_excel(self.user_inputpath, index=False)
+
+    def _coerce_to_dataframe(self, data):
+        if data is None:
+            return None
+        obj = data[0] if isinstance(data, list) and len(data) > 0 else data
+        if isinstance(obj, Table):
+            df = table_to_frame(obj)
+            self.merge_metas(obj, df)
+            return df
+        if isinstance(obj, pd.DataFrame):
+            return obj.copy()
+        return None
 
     @Inputs.data
     def set_data(self, data):
         if data:
             print("数据输入成功::::", data)
             self.ALLdata = data
-
-            if isinstance(data[0], Table):
-                df: pd.DataFrame = table_to_frame(data[0])  # 将输入的Table转换为DataFrame
-                self.merge_metas(data[0], df)  # 防止meta数据丢失
-                self.data: pd.DataFrame = df
-            elif isinstance(data[0], pd.DataFrame):
-                self.data: pd.DataFrame = data[0]
-            self.read()
+            self.data = self._coerce_to_dataframe(data)
+            if self.data is not None:
+                self._save_config_input(self.data)
+                self.read()
         else:
             self.data = None
 
-    # 统一做table大表的 适配
     @Inputs.dataTable
     def set_dataTable(self, dataTable):
         if dataTable:
             self.data = table_to_frame(dataTable)
-            # 创建一个文件夹来保存 Excel 文件
-            folder_path = './config_Cengduan/样本类别均衡'
-            os.makedirs(folder_path, exist_ok=True)  # 如果文件夹不存在，则创建它
-
-            # 保存到文件夹中的 Excel 文件
-            self.user_inputpath = os.path.join(folder_path, '样本类别均衡配置文件.xlsx')
-            print('保存配置文件到:', self.user_inputpath)
-            self.data.to_excel(self.user_inputpath, index=False)
+            self._save_config_input(self.data)
             self.read()
         else:
             self.data = None
 
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            self.payload_file_names = []
+            self.payload_file_paths = []
+            self.data = None
+            return
+
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="process",
+            task="balance",
+            data_kind="table_batch",
+        )
+        print("payload 输入成功::::", PayloadManager.summary(self.input_payload))
+        self._apply_payload_input(self.input_payload)
+
+    def _apply_payload_input(self, payload):
+        self.payload_file_names = PayloadManager.get_file_names(payload)
+        self.payload_file_paths = PayloadManager.get_file_paths(payload)
+
+        primary_df = PayloadManager.get_single_dataframe(payload)
+        primary_table = PayloadManager.get_single_table(payload)
+
+        if primary_df is not None:
+            self.data = primary_df.copy()
+        elif primary_table is not None:
+            df = table_to_frame(primary_table)
+            self.merge_metas(primary_table, df)
+            self.data = df
+        else:
+            self.data = None
+
+        self.ALLdata = [self.data] if self.data is not None else []
+        if self.data is not None:
+            self._save_config_input(self.data)
+            self.read()
+
+    firstdepths = None
     firstdepths = None
     stopdepths = None
 
@@ -115,8 +170,10 @@ class Widget(OWWidget):
     #         print('请先输入文件路径')
 
     class Outputs:  # TODO:输出
-        table = Output("汇总大表", Table, auto_summary=False)  # 纯数据Table输出，用于与Orange其他部件交互
-        data = Output("汇总数据", list, auto_summary=False)  # 输出给控件
+        table = Output("汇总大表", Table, auto_summary=False)
+        data = Output("汇总数据", list, auto_summary=False)
+        payload = Output("payload", dict, auto_summary=False)
+
     @gui.deferred
     def commit(self):
         self.run()
@@ -151,7 +208,7 @@ class Widget(OWWidget):
     @property
     def output_file_name(self) -> str:
         from datetime import datetime
-        return datetime.now().strftime("%y%m%d%H%M%S") + '_机械比能参数重构.xlsx'  # 默认保存文件名
+        return datetime.now().strftime("%y%m%d%H%M%S") + '_样本类别均衡.xlsx'  # 默认保存文件名
 
     data_preview_max_row = 50  # 点击查看数据按钮时，最多显示的行数
     dataYLD_type_list: list = ['常规数值', '指数数值', '文本', '其他']  #
@@ -177,26 +234,36 @@ class Widget(OWWidget):
 
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
     def ignore_function(self, text, prop):
-        # 执行 '忽略' 选项后的处理逻辑
-        # print("忽略选项被选择，执行相应的函数")
         if text == '忽略':
             print("忽略选项被选择，执行相应的函数", prop)
             columns = prop
-            if self.data.index.duplicated().any():
-                self.data.reset_index(drop=True, inplace=True)
-            self.data = self.data.drop(columns=columns)
+            if self.data is not None and columns in self.data.columns:
+                if self.data.index.duplicated().any():
+                    self.data.reset_index(drop=True, inplace=True)
+                self.data = self.data.drop(columns=columns)
         elif text == '深度索引':
-            self.depth_index = text
+            self.depth_index = prop
             print("深度索引被选择，执行相应的函数", self.depth_index)
         elif text == '特征':
-            self.lognames.append(prop)
+            if prop not in self.lognames:
+                self.lognames.append(prop)
             print("特征被选择，执行相应的函数", self.lognames)
         elif text == '目标':
             self.target = prop
             print("目标被选择，执行相应的函数", self.target)
-            self.targetlist = self.data[prop].unique().tolist()
+            self.targetlist = self.data[prop].dropna().astype(str).unique().tolist()
             self.getclassnames()
             print('目标列的数据:', self.targetlist)
+
+    def _sync_runtime_param_from_auto_detect(self, prop, value_type, func_type):
+        if func_type == '深度索引':
+            self.depth_index = prop
+        elif func_type == '特征':
+            if prop not in self.lognames:
+                self.lognames.append(prop)
+        elif func_type == '目标':
+            self.target = prop
+            self.targetlist = self.data[prop].dropna().astype(str).unique().tolist()
 
     Amplitude = 1000
     N = 100
@@ -208,33 +275,148 @@ class Widget(OWWidget):
     max_clip = 10
     order = 201
     Classnamess = None
+
     def run(self):
-        # # """【核心入口方法】发送按钮回调"""
         if self.data is None:
             self.warning('请先输入数据')
             return
 
-        if self.Classnamess is None:
+        if not getattr(self, 'target', None):
             self.warning('请先选择目标')
             return
 
-        # random_choice_index(input_path,target='CW',classesnames=['Q1','Q2','Q3','Q4','Q5','Q6','Q7','Q8','Q9'],n=100, random_state=1)
-        # 打印所需数据
+        if not self.Classnamess:
+            self.warning('请先选择目标类别')
+            return
+
+        if not self.user_inputpath:
+            self.warning('缺少输入文件路径')
+            return
+
         print('数据:', self.user_inputpath)
-        # print('文件名:', self.file_name)
-        # print('数据:', self.data)
         print('目标:', self.target)
         print('目标列的数据:', self.Classnamess)
         print('N', self.N)
         print('random_state', self.random_state)
 
-        result = runmain.random_choice_index(self.user_inputpath, target=self.target, classesnames=self.Classnamess, n=self.N, random_state=self.random_state)
+        started = ThreadUtils_w.startAsyncTask(
+            self,
+            self._run_balance_task,
+            self._on_run_finished,
+            input_path=self.user_inputpath,
+            target=self.target,
+            classesnames=list(self.Classnamess),
+            n=self.N,
+            random_state=self.random_state,
+        )
 
-        self.save(result)
-        # 输出数据
+        if not started:
+            self.warning("当前已有任务在运行，请稍后再试")
+
+    def _run_balance_task(self, *, input_path, target, classesnames, n, random_state, setProgress=None,
+                          isCancelled=None):
+        if setProgress:
+            setProgress(5)
+        if isCancelled and isCancelled():
+            return {"cancelled": True}
+
+        result = runmain.random_choice_index(
+            input_path=input_path,
+            target=target,
+            classesnames=classesnames,
+            n=n,
+            random_state=random_state,
+        )
+
+        if setProgress:
+            setProgress(90)
+        if isCancelled and isCancelled():
+            return {"cancelled": True}
+        return {"cancelled": False, "result_df": result}
+
+    def _resolve_saved_file_path(self, filename: str) -> str:
+        if not filename:
+            return ""
+        outputPath = self.default_output_path + self.output_super_folder
+        if self.save_radio == 0:
+            return os.path.join(outputPath, filename)
+        elif self.save_radio == 1 and self.save_path:
+            return os.path.join(self.save_path, filename)
+        return ""
+
+    def _on_run_finished(self, future):
+        try:
+            task_result = future.result()
+        except Exception as e:
+            print(e)
+            self.error("样本类别均衡运行失败，请检查目标列、类别选择和输入数据")
+            return
+
+        if not task_result or task_result.get("cancelled"):
+            self.warning("任务已取消")
+            return
+
+        result = task_result.get("result_df")
+        if result is None or result.empty:
+            self.error("未生成结果数据")
+            return
+
+        filename = self.save(result)
+        result_table = table_from_frame(result)
+
         self.Outputs.data.send([result])
-        self.Outputs.table.send(table_from_frame(result))
+        self.Outputs.table.send(result_table)
 
+        output_payload = self.build_output_payload(
+            result_df=result,
+            result_table=result_table,
+            saved_filename=filename,
+        )
+        self.Outputs.payload.send(output_payload)
+
+    def build_output_payload(self, *, result_df, result_table, saved_filename):
+        if self.input_payload is not None:
+            output_payload = PayloadManager.clone_payload(self.input_payload)
+        else:
+            output_payload = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="process",
+                task="balance",
+                data_kind="table"
+            )
+
+        saved_file_path = self._resolve_saved_file_path(saved_filename)
+        item = PayloadManager.make_item(
+            file_path=saved_file_path,
+            orange_table=result_table,
+            dataframe=result_df,
+            sheet_name="",
+            role="main",
+            meta={
+                "widget": self.name,
+                "target": self.target,
+                "classesnames": list(self.Classnamess) if self.Classnamess else [],
+                "n": self.N,
+                "random_state": self.random_state,
+            }
+        )
+
+        output_payload = PayloadManager.replace_items(output_payload, [item], data_kind="table")
+        output_payload = PayloadManager.set_result(
+            output_payload,
+            orange_table=result_table,
+            dataframe=result_df,
+            extra={"saved_file_name": saved_filename, "saved_file_path": saved_file_path}
+        )
+        output_payload = PayloadManager.update_context(
+            output_payload,
+            target=self.target,
+            classesnames=list(self.Classnamess) if self.Classnamess else [],
+            n=self.N,
+            random_state=self.random_state,
+        )
+        output_payload["legacy"].update({"data_list": [result_df]})
+        return output_payload
 
     def read(self):
         """读取数据方法"""
@@ -243,10 +425,18 @@ class Widget(OWWidget):
 
         self.selectedWellName = []
         self.propertyDict = {}
+        self.lognames = []
+        self.target = None
+        self.targetlist = []
+        self.Classnamess = None
+        self.ddf = pd.DataFrame()
 
-        # 填充属性表格
         self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
 
+        if getattr(self, 'target', None):
+            self.getclassnames()
+
+    #################### 读取GUI上的配置 ####################
     #################### 读取GUI上的配置 ####################
     firstdepths = None
     stopdepths = None
@@ -471,13 +661,12 @@ class Widget(OWWidget):
             table.setItem(i, 0, QTableWidgetItem(prop))
 
             self.propertyDict[tableName][prop] = {}
-            # 设置属性数值类型
             self.propertyDict[tableName][prop]['type'] = typeList[3]
-            if prop.lower() in self.log_lists:  # 设置指数数值类型
+            if prop.lower() in self.log_lists:
                 self.propertyDict[tableName][prop]['type'] = typeList[1]
-            elif str(data[prop].dtype) in self.TextType:  # 设置文本类型
+            elif str(data[prop].dtype) in self.TextType:
                 self.propertyDict[tableName][prop]['type'] = typeList[2]
-            elif str(data[prop].dtype) in self.NumType:  # 设置数值类型
+            elif str(data[prop].dtype) in self.NumType:
                 self.propertyDict[tableName][prop]['type'] = typeList[0]
 
             comboBox = QComboBox()
@@ -486,50 +675,43 @@ class Widget(OWWidget):
             comboBox.currentTextChanged.connect(lambda text, prop=prop: self.typeChanged(tableName, text, prop))
             table.setCellWidget(i, 1, comboBox)
 
-            # 设置属性作用类型
             self.propertyDict[tableName][prop]['funcType'] = funcTypeList[7]
-            if prop.lower() in self.wellname_col_alias:  # 设置井名索引
+            if prop.lower() in self.wellname_col_alias:
                 self.propertyDict[tableName][prop]['funcType'] = funcTypeList[0]
-            elif prop.lower() in self.CH_col_alias:  # 设置层号索引
+            elif prop.lower() in self.CH_col_alias:
                 self.propertyDict[tableName][prop]['funcType'] = funcTypeList[1]
-            elif prop.lower() in self.topdepth_col_alias:  # 设置顶深索引
+            elif prop.lower() in self.topdepth_col_alias:
                 self.propertyDict[tableName][prop]['funcType'] = funcTypeList[2]
-            elif prop.lower() in self.botdepth_col_alias:  # 设置底深索引
+            elif prop.lower() in self.botdepth_col_alias:
                 self.propertyDict[tableName][prop]['funcType'] = funcTypeList[3]
-
-            elif prop.lower() in self.depth_col_alias:  # 设置深度索引
+            elif prop.lower() in self.depth_col_alias:
                 self.propertyDict[tableName][prop]['funcType'] = funcTypeList[4]
-                self.depth_index = prop
-
-            elif prop.lower() in self.TZ_col_alias:  # 设置特征索引
+            elif prop.lower() in self.TZ_col_alias:
                 self.propertyDict[tableName][prop]['funcType'] = funcTypeList[6]
-                self.lognames.append(prop)
-
-            elif prop.lower() in self.MB_col_alias:  # 设置 目标 索引
+            elif prop.lower() in self.MB_col_alias:
                 self.propertyDict[tableName][prop]['funcType'] = funcTypeList[5]
-                self.target = prop
-                # 把target 列的数据 去重 然后储存在列表中
-                self.targetlist = data[prop].unique().tolist()
-                self.getclassnames()
-
-
-            elif prop.lower() in self.space_alias_x:  # 设置x索引
+            elif prop.lower() in self.space_alias_x:
                 self.propertyDict[tableName][prop]['funcType'] = funcTypeList[9]
-            elif prop.lower() in self.space_alias_y:  # 设置y索引
+            elif prop.lower() in self.space_alias_y:
                 self.propertyDict[tableName][prop]['funcType'] = funcTypeList[10]
-            elif prop.lower() in self.space_alias_z:  # 设置z索引
+            elif prop.lower() in self.space_alias_z:
                 self.propertyDict[tableName][prop]['funcType'] = funcTypeList[11]
 
             comboBox = QComboBox()
             comboBox.addItems(funcTypeList)
             comboBox.setCurrentText(self.propertyDict[tableName][prop]['funcType'])
             comboBox.currentTextChanged.connect(lambda text, prop=prop: self.funcTypeChanged(tableName, text, prop))
-            # 连接 'currentTextChanged' 信号到槽函数
             comboBox.currentTextChanged.connect(lambda text, prop=prop: self.ignore_function(text, prop))
             table.setCellWidget(i, 2, comboBox)
 
-            if self.propertyDict[tableName][prop]['type'] == typeList[2]:  # 文本类型
+            if self.propertyDict[tableName][prop]['type'] == typeList[2]:
                 self.ddf[prop] = data[prop]
+
+            self._sync_runtime_param_from_auto_detect(
+                prop=prop,
+                value_type=self.propertyDict[tableName][prop]['type'],
+                func_type=self.propertyDict[tableName][prop]['funcType']
+            )
 
     def tryFillNameTable(self) -> bool:
         if self.data is None:
@@ -767,7 +949,7 @@ class Widget(OWWidget):
         # 设置容器的布局为 QVBoxLayout
         container.setLayout(self.layoutTOP)
         # 将容器添加到 QGridLayout 占据第一列 前两行
-        self.layout.addWidget(container ,0,0,2,1)
+        self.layout.addWidget(container, 0, 0, 2, 1)
 
         ###左下角的井列表和属性
         self.tableLFTD = QVBoxLayout()
@@ -795,8 +977,6 @@ class Widget(OWWidget):
         containerlist.setLayout(self.tableLFTD)
         # 将容器添加到 QGridLayout
         # self.layout.addWidget(containerlist, 0, 0)
-
-        
 
         self.layoutBOTTOM = QVBoxLayout()
         # 创建标签
@@ -896,9 +1076,7 @@ class Widget(OWWidget):
         print("selected_filters:", self.MSEtypes)
 
     def update_selected_list(self):
-        # 获取选中的复选框标签
         self.Classnamess = [cb.text() for cb in self.checkboxes if cb.isChecked()]
-        # 打印选中的复选框标签
         print("Class names:", self.Classnamess)
 
     def toggle_selection(self):
@@ -917,53 +1095,40 @@ class Widget(OWWidget):
         self.update_selected_list()
 
     def onTextChanged(self, text):
-        # 获取输入框的内容
         sender = self.sender()
-        if sender == self.input4:
-            text = int(text)
-            self.N = text
-            print("N:", self.N)
-            print(type(self.N))
-        elif sender == self.input5:
-            text = int(text)
-            self.random_state = text
-            print("random_state:", self.random_state)
-            print(type(self.random_state))
-        elif sender == self.input6:
-            text = float(text)
-            self.Em = text
-            print("Em:", self.Em)
-            print(type(self.Em))
-        elif sender == self.input7:
-            text = int(text)
-            self.Amplitude = text
-            print("Amplitude:", self.Amplitude)
-            print(type(self.Amplitude))
-        elif sender == self.input9:
-            text = float(text)
-            self.Small_a = text
-            print("a:", self.Small_a)
-            print(type(self.Small_a))
-        elif sender == self.input10:
-            text = int(text)
-            self.Big_A = text
-            print("A:", self.Big_A)
-            print(type(self.Big_A))
-        elif sender == self.input11:
-            text = int(text)
-            self.fs = text
-            print("fs:", self.fs)
-            print(type(self.fs))
-        elif sender == self.input12:
-            text = int(text)
-            self.max_clip = text
-            print("max_clip:", self.max_clip)
-            print(type(self.max_clip))
-        elif sender == self.input13:
-            text = int(text)
-            self.order = text
-            print("order:", self.order)
-            print(type(self.order))
+        text = str(text).strip()
+        if text == '':
+            return
+        try:
+            if sender == self.input4:
+                self.N = int(text)
+                print("N:", self.N)
+            elif sender == self.input5:
+                self.random_state = int(text)
+                print("random_state:", self.random_state)
+            elif sender == self.input6:
+                self.Em = float(text)
+                print("Em:", self.Em)
+            elif sender == self.input7:
+                self.Amplitude = int(text)
+                print("Amplitude:", self.Amplitude)
+            elif sender == self.input9:
+                self.Small_a = float(text)
+                print("a:", self.Small_a)
+            elif sender == self.input10:
+                self.Big_A = int(text)
+                print("A:", self.Big_A)
+            elif sender == self.input11:
+                self.fs = int(text)
+                print("fs:", self.fs)
+            elif sender == self.input12:
+                self.max_clip = int(text)
+                print("max_clip:", self.max_clip)
+            elif sender == self.input13:
+                self.order = int(text)
+                print("order:", self.order)
+        except ValueError:
+            print("输入值格式错误:", text)
 
     def remove_filter(self, filter_layout):
         for i in reversed(range(filter_layout.count())):

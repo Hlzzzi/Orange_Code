@@ -690,7 +690,7 @@ def datasave(result, out_path, filename, savetype='.xlsx'):
 #         progress_percentage=processed_records/total_records*100
 #         logging.info(f"处理进度：(%-{(progress_percentage-1):.2f}-%)")
 def Intelligent_filtering(logspath, datalists, lognames, window=13, N=8, Wn=0.8, Amplitude=1000, a=0.8, A=1000, fs=15,
-                          max_clip=10, order=201, dictnames={}, depth_index='depth',
+                          max_clip=10, order=201, dictnames=None, depth_index='depth',
                           replace_depth_names=['DEPT', 'DEPTH', 'depth', 'Depth', '#Depth'],
                           nanvlits=[-9999, -999.25, -999, 999, 999.25, 9999]):
     import lasio
@@ -698,6 +698,8 @@ def Intelligent_filtering(logspath, datalists, lognames, window=13, N=8, Wn=0.8,
     from os.path import join
     import pandas as pd
     ALLDATA = []
+    if dictnames is None:
+        dictnames = {}
     if datalists == None or len(datalists) == 0:
         datalistss = os.listdir(logspath)
     else:
