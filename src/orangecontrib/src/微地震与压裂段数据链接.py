@@ -12,6 +12,10 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QCheckBox
 
 from .pkg import MyWidget
+from .pkg.zxc import ThreadUtils_w
+from ..payload_manager import PayloadManager
+
+
 
 
 
@@ -32,6 +36,8 @@ class Widget(OWWidget):
         dataYLD = Input("压裂段数据", list, auto_summary=False)
         # 微地震数据：通过【测井数据加载】控件【单文件选择】功能载入
         dataWDZ = Input("微地震数据", list, auto_summary=False)
+        payloadYLD = Input("压裂段payload", dict, auto_summary=False)
+        payloadWDZ = Input("微地震payload", dict, auto_summary=False)
 
     dataYLD: pd.DataFrame = None
     dataWDZ: pd.DataFrame = None
@@ -67,17 +73,50 @@ class Widget(OWWidget):
         else:
             self.dataWDZ = None
 
+
+    @Inputs.payloadYLD
+    def set_payloadYLD(self, payload):
+        if not payload:
+            self.payloadYLD_input = None
+            return
+        self.payloadYLD_input = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='merge', task='link_microseismic_fracture', data_kind='table_batch')
+        df = PayloadManager.get_single_dataframe(self.payloadYLD_input)
+        if df is None:
+            table = PayloadManager.get_single_table(self.payloadYLD_input)
+            if table is not None:
+                df = table_to_frame(table); self.merge_metas(table, df)
+        self.dataYLD = df.copy() if df is not None else None
+        self.read()
+
+    @Inputs.payloadWDZ
+    def set_payloadWDZ(self, payload):
+        if not payload:
+            self.payloadWDZ_input = None
+            return
+        self.payloadWDZ_input = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='merge', task='link_microseismic_fracture', data_kind='table_batch')
+        df = PayloadManager.get_single_dataframe(self.payloadWDZ_input)
+        if df is None:
+            table = PayloadManager.get_single_table(self.payloadWDZ_input)
+            if table is not None:
+                df = table_to_frame(table); self.merge_metas(table, df)
+        self.dataWDZ = df.copy() if df is not None else None
+        self.read()
+
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
         table = Output("数据Table", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
         raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
         self.run()
 
     save_radio = Setting(2)
+    payloadYLD_input = None
+    payloadWDZ_input = None
+    _last_saved_file_path = ''
 
     # ↓↓↓↓↓↓ 一些可以调整代码行为的全局变量 ↓↓↓↓↓↓
 
@@ -119,16 +158,11 @@ class Widget(OWWidget):
             return
 
         self.clear_messages()
-
-        # 删除忽略的列
         dataYLDrun = self.dataYLD.drop(columns=self.getIgnoreColsList('压裂段'), inplace=False)
         dataWDZrun = self.dataWDZ.drop(columns=self.getIgnoreColsList('微地震'), inplace=False)
-
-        # 删除未选择的井名行
         dataYLDrun = dataYLDrun[dataYLDrun[self.currentWellNameCol_YLD].isin(self.selectedWellName)]
         dataWDZrun = dataWDZrun[dataWDZrun[self.currentWellNameCol_WDZ].isin(self.selectedWellName)]
 
-        # 找到层号索引
         CHCol_YLD = None
         CHCol_WDZ = None
         for row in range(self.YLDTable.rowCount()):
@@ -144,20 +178,54 @@ class Widget(OWWidget):
             self.warning('数据未设置层号索引')
             return
 
-        # 重命名右表井名和层号列名为左表中的名称，便于合并
-        dataWDZrun.rename(columns={self.currentWellNameCol_WDZ: self.currentWellNameCol_YLD}, inplace=True)
-        dataWDZrun.rename(columns={CHCol_WDZ: CHCol_YLD}, inplace=True)
+        dataWDZrun = dataWDZrun.rename(columns={self.currentWellNameCol_WDZ: self.currentWellNameCol_YLD, CHCol_WDZ: CHCol_YLD})
+        started = ThreadUtils_w.startAsyncTask(self, self._run_link_task, self._on_run_finished, dataYLDrun=dataYLDrun, dataWDZrun=dataWDZrun, wellname=self.currentWellNameCol_YLD, zonename=CHCol_YLD)
+        if not started:
+            self.warning('当前已有任务在运行，请稍后再试')
 
-        # 执行
-        result = self.sheet_sheet_bigtable2(dataYLDrun, dataWDZrun, self.currentWellNameCol_YLD, CHCol_YLD)
+    def _run_link_task(self, *, dataYLDrun, dataWDZrun, wellname, zonename, setProgress=None, isCancelled=None):
+        if setProgress:
+            setProgress(10)
+        if isCancelled():
+            return None
+        result = self.sheet_sheet_bigtable2(dataYLDrun, dataWDZrun, wellname, zonename)
+        if setProgress:
+            setProgress(95)
+        return result
 
-        # 保存
+    def _on_run_finished(self, f):
+        try:
+            result = f.result()
+        except Exception as e:
+            self.warning(''.join(getattr(e, 'args', [str(e)])))
+            return
+        if result is None or result.empty:
+            self.error('未生成结果数据')
+            return
         filename = self.save(result)
-
-        # 发送
-        self.Outputs.table.send(table_from_frame(result))
+        table = table_from_frame(result)
+        self.Outputs.table.send(table)
         self.Outputs.data.send([result])
-        self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
+        raw = {'maindata': result, 'target': [], 'future': [], 'filename': filename}
+        self.Outputs.raw.send(raw)
+        self.Outputs.payload.send(self.build_output_payload(result, table, raw))
+
+    def build_output_payload(self, result, table, raw):
+        if self.payloadYLD_input is not None or self.payloadWDZ_input is not None:
+            payloads = {}
+            if self.payloadYLD_input is not None:
+                payloads['fracture'] = self.payloadYLD_input
+            if self.payloadWDZ_input is not None:
+                payloads['microseismic'] = self.payloadWDZ_input
+            out = PayloadManager.merge_payloads(node_name=self.name, input_payloads=payloads, node_type='merge', task='link_microseismic_fracture', data_kind='linked_table')
+        else:
+            out = PayloadManager.empty_payload(node_name=self.name, node_type='merge', task='link_microseismic_fracture', data_kind='linked_table')
+        item = PayloadManager.make_item(file_path=self._last_saved_file_path, orange_table=table, dataframe=result, role='main')
+        out = PayloadManager.replace_items(out, [item], data_kind='linked_table')
+        out = PayloadManager.set_result(out, orange_table=table, dataframe=result, extra={'saved_file_path': self._last_saved_file_path})
+        out = PayloadManager.update_context(out, selected_wells=list(self.selectedWellName or []), wellname_col=self.currentWellNameCol_YLD)
+        out['legacy'].update({'raw': raw})
+        return out
 
     def read(self):
         """读取数据方法"""
@@ -399,6 +467,7 @@ class Widget(OWWidget):
     def save(self, result) -> str:
         """保存文件"""
         filename = self.output_file_name
+        self._last_saved_file_path = ''
         outputPath = self.default_output_path + self.output_super_folder
         if self.save_radio == 0:  # 默认路径
             os.makedirs(outputPath, exist_ok=True)
@@ -406,7 +475,8 @@ class Widget(OWWidget):
             outputPath = self.save_path
         else:
             return filename
-        result.to_excel(os.path.join(outputPath, filename), index=False)
+        self._last_saved_file_path = os.path.join(outputPath, filename)
+        result.to_excel(self._last_saved_file_path, index=False)
         return filename
 
     def merge_metas(self, table: Table, df: pd.DataFrame):

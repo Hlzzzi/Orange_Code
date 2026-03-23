@@ -1,7 +1,7 @@
 # -*- coding: UTF-8 -*-
 from PyQt5.QtCore import Qt
 import pandas as pd
-from PyQt5.QtWidgets import QGridLayout,QTableWidget, QHeaderView, QAbstractItemView, QTableWidgetItem, QFileDialog
+from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHeaderView, QAbstractItemView, QTableWidgetItem, QFileDialog
 
 import Orange.data
 from Orange.widgets import widget, gui
@@ -11,6 +11,7 @@ from orangewidget.utils.widgetpreview import WidgetPreview
 from Orange.data import table_from_frame
 import copy
 import os
+from ..payload_manager import PayloadManager
 
 
 class OWDataSamplerA(widget.OWWidget):
@@ -20,15 +21,39 @@ class OWDataSamplerA(widget.OWWidget):
     priority = 10
 
     class Inputs:
-        in_data_dict = Input("Data list(dict)",dict, auto_summary=False)
+        in_data_dict = Input("Data list(dict)", dict, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
 
     class Outputs:
         out_data_dict = Output("Data list(dict)", dict, auto_summary=False)
         out_data_table = Output("Data list(table)", Orange.data.Table)
-
+        payload = Output("payload", dict, auto_summary=False)
 
     # Inputs.data 中的data是变量名字，如：上面输入的data
     # 处理输入的数据
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            return
+        self.input_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='process',
+                                                           task='attribute_split', data_kind='table_batch')
+        legacy = self.input_payload.get('legacy', {}).get('data_dict')
+        if isinstance(legacy, dict) and legacy.get('maindata') is not None:
+            self.set_data(legacy)
+            return
+        df = PayloadManager.get_single_dataframe(self.input_payload)
+        if df is None:
+            table = PayloadManager.get_single_table(self.input_payload)
+            if table is not None:
+                df = table_to_frame(table)
+        if df is None:
+            self.error('没有数据输入')
+            return
+        fake = {'maindata': df, 'target': [], 'future': [],
+                'filename': (PayloadManager.get_file_names(self.input_payload)[:1] or [''])[0]}
+        self.set_data(fake)
+
     @Inputs.in_data_dict
     def set_data(self, input_data):
         if input_data is None:
@@ -53,15 +78,12 @@ class OWDataSamplerA(widget.OWWidget):
             for i in future:
                 temp_target_future[i] = 1
 
-
         temp = self.get_data_categorical(self.file_data)
-        self.target_future = self.get_fuction(temp,temp_target_future)
+        self.target_future = self.get_fuction(temp, temp_target_future)
         self.set_table_data(self.target_future)
-
 
         if self.auto_send and input_data is not None:
             self.send_data_to_next()
-
 
     # 是否开启主区域
     want_main_area = False
@@ -72,14 +94,15 @@ class OWDataSamplerA(widget.OWWidget):
     outpath = ""
     file_data = None
     loading_file_data = False
+    input_payload = None
 
-    def closeMywidget1(self): # 确定键退出
+    def closeMywidget1(self):  # 确定键退出
         # if self.auto_send and self.input_data is not None:
-            # self.Outputs.data.send(self.input_data)
+        # self.Outputs.data.send(self.input_data)
         self.send_data_to_next()
         # self.close()
 
-    def closeMywidget2(self): # 取消键退出
+    def closeMywidget2(self):  # 取消键退出
         self.close()
 
     def send_data_to_next(self):
@@ -96,17 +119,16 @@ class OWDataSamplerA(widget.OWWidget):
                 need_to_remove.append(temp_data)
                 need_to_send_file_data.pop(temp_data)
 
-        for temp_key_data in need_to_remove :
+        for temp_key_data in need_to_remove:
             temp.pop(temp_key_data)
         send_data = {}
         send_data["maindata"] = need_to_send_file_data
         send_data["attribute"] = temp
         # print(send_data)
         self.Outputs.out_data_dict.send(send_data)
-        self.Outputs.out_data_table.send(
-            table_from_frame(need_to_send_file_data)
-        )
-
+        out_table = table_from_frame(need_to_send_file_data)
+        self.Outputs.out_data_table.send(out_table)
+        self.Outputs.payload.send(self.build_output_payload(send_data, need_to_send_file_data, out_table))
 
     def __init__(self):
         super().__init__()
@@ -118,10 +140,9 @@ class OWDataSamplerA(widget.OWWidget):
         # bottom_box2 = gui.hBox(bottom_box)
         bottom_box2 = gui.hBox(self.buttonsArea)
         gui.button(bottom_box2, self, "取消", callback=self.closeMywidget2)
-        gui.button(bottom_box2, self, "发送", callback=self.closeMywidget1,default=True)
+        gui.button(bottom_box2, self, "发送", callback=self.closeMywidget1, default=True)
 
-        box = gui.widgetBox(self.controlArea,box= "",orientation=Qt.Horizontal)
-
+        box = gui.widgetBox(self.controlArea, box="", orientation=Qt.Horizontal)
 
         layouttemp = QGridLayout()
         layouttemp.setSpacing(4)
@@ -139,21 +160,33 @@ class OWDataSamplerA(widget.OWWidget):
         gui.button(self.file_read_button, self, "选择文件", callback=self.get_outpath)
         gui.button(self.file_read_button, self, "重新加载", callback=self.load_file_data)
 
-
-
-        self.table_show_file_data = self.create_table(["名称","类型","作用"])
+        self.table_show_file_data = self.create_table(["名称", "类型", "作用"])
         # 绑定事件，当单元格中的内容改变时，调用rename_table_data方法
         self.table_show_file_data.itemChanged.connect(self.rename_table_data)
 
         layouttemp.addWidget(self.file_read_button, 0, 0)
         layouttemp.addWidget(self.table_show_file_data, 1, 0)
 
-
     def get_outpath(self):
         # self.outpath = QFileDialog.getExistingDirectory(self, "选取文件夹", "./")
         # get file path
         self.outpath = QFileDialog.getOpenFileName(self, "选取文件", "./", "All Files (*);;Text Files (*.txt)")[0]
         self.load_file_data()
+
+    def build_output_payload(self, send_data: dict, dataframe: pd.DataFrame, out_table):
+        out = PayloadManager.clone_payload(
+            self.input_payload) if self.input_payload is not None else PayloadManager.empty_payload(node_name=self.name,
+                                                                                                    node_type='process',
+                                                                                                    task='attribute_split',
+                                                                                                    data_kind='table')
+        item = PayloadManager.make_item(file_path=self.outpath if os.path.isfile(self.outpath) else '',
+                                        orange_table=out_table, dataframe=dataframe, role='main',
+                                        meta={'attribute': send_data.get('attribute', {})})
+        out = PayloadManager.replace_items(out, [item], data_kind='table')
+        out = PayloadManager.set_result(out, orange_table=out_table, dataframe=dataframe)
+        out = PayloadManager.update_context(out, attribute=send_data.get('attribute', {}))
+        out['legacy'].update({'data_dict': send_data})
+        return out
 
     def load_file_data(self):
         self.clear_messages()
@@ -167,17 +200,15 @@ class OWDataSamplerA(widget.OWWidget):
                 self.error("文件读取失败")
                 return
         else:
-            self.error("暂不支持该文件类型读取:",file_type)
+            self.error("暂不支持该文件类型读取:", file_type)
 
         temp = self.get_data_categorical(self.file_data)
-        self.target_future = self.get_fuction(temp,None)
+        self.target_future = self.get_fuction(temp, None)
         self.set_table_data(self.target_future)
         self.loading_file_data = False
 
-
-    def create_table(self,title_list:list):
+    def create_table(self, title_list: list):
         title_len = len(title_list)
-
 
         table_temp = QTableWidget(0, title_len)
         table_temp.setParent(self)
@@ -205,15 +236,14 @@ class OWDataSamplerA(widget.OWWidget):
         # """)
         return table_temp
 
-    def set_table_data(self,title_data:dict):
+    def set_table_data(self, title_data: dict):
         self.table_show_file_data.setRowCount(len(title_data))
-        items1 = ["特征","目标","其他","忽略"]
-        items2 = ["分类","常规数值","文本","时间","指数数值"]
-
+        items1 = ["特征", "目标", "其他", "忽略"]
+        items2 = ["分类", "常规数值", "文本", "时间", "指数数值"]
 
         index = 0
         for data in title_data.keys():
-            self.table_show_file_data.setItem(index,0,QTableWidgetItem(data))
+            self.table_show_file_data.setItem(index, 0, QTableWidgetItem(data))
             combo1 = gui.comboBox(None, master=self, items=items1, value="")
             combo1.wheelEvent = lambda event: None
             combo1.setCurrentIndex(items1.index(title_data[data][1]))
@@ -222,29 +252,29 @@ class OWDataSamplerA(widget.OWWidget):
             combo2.wheelEvent = lambda event: None
             combo2.setCurrentIndex(items2.index(title_data[data][0]))
 
-            self.table_show_file_data.setCellWidget(index,1,combo1)
-            self.table_show_file_data.setCellWidget(index,2,combo2)
+            self.table_show_file_data.setCellWidget(index, 1, combo1)
+            self.table_show_file_data.setCellWidget(index, 2, combo2)
             index += 1
 
-    def rename_table_data(self,value:QTableWidgetItem):
+    def rename_table_data(self, value: QTableWidgetItem):
         if self.loading_file_data:
             return
         change_row = value.row()
         # print("change_row:",change_row)
         # print("change_row type:",type(change_row))
         # print("value.text():",value.text())
-        new_name = {self.file_data.columns[change_row]:value.text()}
-        self.file_data.rename(columns=new_name,inplace=True)
+        new_name = {self.file_data.columns[change_row]: value.text()}
+        self.file_data.rename(columns=new_name, inplace=True)
 
-    def get_data_to_send(self)->dict:
+    def get_data_to_send(self) -> dict:
         ret = {}
         for row in range(self.table_show_file_data.rowCount()):
-            name = self.table_show_file_data.item(row,0).text()
-            ret[name] = [self.table_show_file_data.cellWidget(row,2).currentText(),
-                                                        self.table_show_file_data.cellWidget(row,1).currentText()]
+            name = self.table_show_file_data.item(row, 0).text()
+            ret[name] = [self.table_show_file_data.cellWidget(row, 2).currentText(),
+                         self.table_show_file_data.cellWidget(row, 1).currentText()]
         return ret
 
-    def get_data_categorical(self,datas:pd.DataFrame):
+    def get_data_categorical(self, datas: pd.DataFrame):
         ret = {}
         # 获取一列数据的类型
         for col in datas.columns:
@@ -259,7 +289,7 @@ class OWDataSamplerA(widget.OWWidget):
                 ret[col] = ["文本"]
         return ret
 
-    def get_fuction(self,data_cate:dict,data_func:dict):
+    def get_fuction(self, data_cate: dict, data_func: dict):
         if data_func is None:
             for name in data_cate.keys():
                 data_cate[name].append("特征")
@@ -268,7 +298,7 @@ class OWDataSamplerA(widget.OWWidget):
                     self.error("数据类型不匹配")
                     return None
             return data_cate
-        
+
         for name in data_cate.keys():
             temp = data_func.get(name)
             if temp is None:

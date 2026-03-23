@@ -1,8 +1,9 @@
 # -*- coding: UTF-8 -*-
 import logging
+import os
 import time
-
-import pandas as pd
+from Orange.data.pandas_compat import table_to_frame
+import numpy as np
 from AnyQt.QtCore import Signal
 from PyQt5 import QtWidgets, sip
 from PyQt5.QtCore import (
@@ -38,6 +39,7 @@ from Orange.evaluation import Results
 from Orange.widgets import widget, gui
 from Orange.widgets.widget import Input, Output, MultiInput
 from orangewidget.utils.widgetpreview import WidgetPreview
+from ..payload_manager import PayloadManager
 
 from .pkg import No4岩心自动归位 as no4
 import concurrent.futures
@@ -169,6 +171,9 @@ class OWDataSamplerA(widget.OWWidget):
         data_core = Input("岩心数据", dict, auto_summary=False)
         data_log = Input("测井数据", dict, auto_summary=False)
         data_welltop = Input("分层数据", dict, auto_summary=False)
+        payload_core = Input("岩心数据Payload", dict, auto_summary=False)
+        payload_log = Input("测井数据Payload", dict, auto_summary=False)
+        payload_welltop = Input("分层数据Payload", dict, auto_summary=False)
 
     @Inputs.data_core
     def set_core_data(self, input_data):
@@ -206,9 +211,118 @@ class OWDataSamplerA(widget.OWWidget):
         ):
             self.set_data_all()
 
+
+    @Inputs.payload_core
+    def set_payload_core(self, payload):
+        self.input_payload_core = PayloadManager.ensure_payload(payload, node_name=self.name, node_type="process", task="align", data_kind="table_batch") if payload else None
+        if payload:
+            self.set_core_data(self._legacy_core_from_payload(self.input_payload_core))
+
+    @Inputs.payload_log
+    def set_payload_log(self, payload):
+        self.input_payload_log = PayloadManager.ensure_payload(payload, node_name=self.name, node_type="process", task="align", data_kind="table_batch") if payload else None
+        if payload:
+            self.set_log_data(self._legacy_log_from_payload(self.input_payload_log))
+
+    @Inputs.payload_welltop
+    def set_payload_welltop(self, payload):
+        self.input_payload_welltop = PayloadManager.ensure_payload(payload, node_name=self.name, node_type="process", task="align", data_kind="table_batch") if payload else None
+        if payload:
+            self.set_welltop_data(self._legacy_welltop_from_payload(self.input_payload_welltop))
+
+    def _guess_col(self, cols, aliases):
+        cols = cols or []
+        norm = {str(c).strip().lower().replace("_", "").replace(" ", ""): c for c in cols}
+        for a in aliases:
+            key = str(a).strip().lower().replace("_", "").replace(" ", "")
+            if key in norm:
+                return norm[key]
+        return cols[0] if cols else None
+
+    def _legacy_core_from_payload(self, payload):
+        df = PayloadManager.get_single_dataframe(payload)
+        if df is None:
+            table = PayloadManager.get_single_table(payload)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+        if df is None:
+            return None
+        cols = df.columns.tolist()
+        well = self._guess_col(cols, ["井名", "wellname", "well"])
+        depth = self._guess_col(cols, ["深度", "depth"])
+        targets = [c for c in cols if c not in [well, depth]][:1]
+        return {"Data": df.copy(), "井名": well, "深度": depth, "目标": targets}
+
+    def _legacy_log_from_payload(self, payload):
+        items = payload.get("items", []) if payload else []
+        data = {}
+        numeric_cols = set()
+        depth_col = None
+        target_cols = set()
+        for idx, item in enumerate(items):
+            df = item.get("dataframe")
+            table = item.get("orange_table")
+            if df is None and table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+            if df is None:
+                continue
+            fname = item.get("file_name") or f"item_{idx+1}"
+            key = os.path.splitext(str(fname))[0]
+            data[key] = df.copy()
+            cols = df.columns.tolist()
+            if depth_col is None:
+                depth_col = self._guess_col(cols, ["深度", "depth"])
+            for c in df.select_dtypes(include=[np.number]).columns.tolist():
+                if c != depth_col:
+                    numeric_cols.add(c)
+            guess_target = self._guess_col(cols, ["井名", "wellname", "well"])
+            if guess_target is not None:
+                target_cols.add(guess_target)
+        return {"Data": data, "深度": depth_col, "目标": list(target_cols) if target_cols else [], "指数数值": list(numeric_cols)}
+
+    def _legacy_welltop_from_payload(self, payload):
+        df = PayloadManager.get_single_dataframe(payload)
+        if df is None:
+            table = PayloadManager.get_single_table(payload)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+        if df is None:
+            return None
+        cols = df.columns.tolist()
+        well = self._guess_col(cols, ["井名", "wellname", "well"])
+        top = self._guess_col(cols, ["顶深", "top", "topdepth"])
+        bot = self._guess_col(cols, ["底深", "bot", "bottom", "bottomdepth"])
+        targets = [c for c in cols if c not in [well, top, bot]][:1]
+        return {"Data": df.copy(), "井名": well, "顶深": top, "底深": bot, "目标": targets}
+
+    def build_output_payload(self):
+        input_payloads = {}
+        if getattr(self, 'input_payload_core', None) is not None:
+            input_payloads['core'] = self.input_payload_core
+        if getattr(self, 'input_payload_log', None) is not None:
+            input_payloads['log'] = self.input_payload_log
+        if getattr(self, 'input_payload_welltop', None) is not None:
+            input_payloads['welltop'] = self.input_payload_welltop
+        if input_payloads:
+            base = PayloadManager.merge_payloads(node_name=self.name, input_payloads=input_payloads, node_type='process', task='align', data_kind='table_batch')
+        else:
+            base = PayloadManager.empty_payload(node_name=self.name, node_type='process', task='align', data_kind='table')
+        df = self.output_data.get('maindata')
+        if df is not None:
+            table = table_from_frame(df)
+            base = PayloadManager.replace_items(base, [PayloadManager.make_item(dataframe=df, orange_table=table, role='main')], data_kind='table')
+            base = PayloadManager.set_result(base, dataframe=df, orange_table=table)
+        base = PayloadManager.update_context(base, target=self.output_data.get('target', []), future=self.output_data.get('future', []), wellname=self.output_data.get('wellname', []))
+        base['legacy'].update({'data_dict': self.output_data})
+        return base
+
     class Outputs:
         data_list = Output("Data list", dict, auto_summary=False)
         data_table = Output("Data", Orange.data.Table, default=True)
+        payload = Output("payload", dict, auto_summary=False)
 
     # 是否开启主区域
     want_main_area = False
@@ -241,6 +355,10 @@ class OWDataSamplerA(widget.OWWidget):
     input_core = None
     input_log = None
     input_welltop = None
+
+    input_payload_core = None
+    input_payload_log = None
+    input_payload_welltop = None
 
     # 保存路径
     outpath = ""
@@ -348,6 +466,7 @@ class OWDataSamplerA(widget.OWWidget):
             self.Outputs.data_table.send(
                 table_from_frame(self.output_data.get("maindata"))
             )
+            self.Outputs.payload.send(self.build_output_payload())
 
     def cancel(self):
         print("into self cancel")

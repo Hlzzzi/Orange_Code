@@ -13,6 +13,10 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
 
 from .pkg import MyWidget
 from .pkg import 示踪剂导入 as runmain
+from .pkg.zxc import ThreadUtils_w
+from ..payload_manager import PayloadManager
+
+
 
 
 class Widget(OWWidget):
@@ -35,6 +39,8 @@ class Widget(OWWidget):
 
         pathSZJ = Input("示踪剂数据路径", str, auto_summary=False)
         pathYLD = Input("压裂段数据路径", str, auto_summary=False)
+        payloadYLD = Input("压裂段payload", dict, auto_summary=False)
+        payloadSZJ = Input("示踪剂payload", dict, auto_summary=False)
 
     dataYLD: pd.DataFrame = None
     dataSZJ: dict = None
@@ -80,17 +86,60 @@ class Widget(OWWidget):
         else:
             self.inputpathYLD = None
 
+
+    @Inputs.payloadYLD
+    def set_payloadYLD(self, payload):
+        if not payload:
+            self.payloadYLD_input = None
+            return
+        self.payloadYLD_input = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='merge', task='link_tracer_fracture', data_kind='table_batch')
+        df = PayloadManager.get_single_dataframe(self.payloadYLD_input)
+        if df is None:
+            table = PayloadManager.get_single_table(self.payloadYLD_input)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+        self.dataYLD = df.copy() if df is not None else None
+        paths = PayloadManager.get_file_paths(self.payloadYLD_input)
+        self.inputpathYLD = paths[0] if paths else None
+        self.read()
+
+    @Inputs.payloadSZJ
+    def set_payloadSZJ(self, payload):
+        if not payload:
+            self.payloadSZJ_input = None
+            return
+        self.payloadSZJ_input = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='merge', task='link_tracer_fracture', data_kind='table_batch')
+        self.dataSZJ = {}
+        for item in self.payloadSZJ_input.get('items', []):
+            well = item.get('file_stem') or os.path.splitext(item.get('file_name', ''))[0]
+            sheet = item.get('sheet_name') or 'Sheet1'
+            df = item.get('dataframe')
+            table = item.get('orange_table')
+            if df is None and table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+            if df is None or not well:
+                continue
+            self.dataSZJ.setdefault(well, {})[sheet] = df.copy()
+        self.inputpathSZJ = PayloadManager.get_primary_folder(self.payloadSZJ_input) or None
+        self.read()
+
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
         table = Output("数据Table", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
         raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
         self.run()
 
     save_radio = Setting(2)
+    payloadYLD_input = None
+    payloadSZJ_input = None
+    _last_saved_file_path = ''
 
     # ↓↓↓↓↓↓ 一些可以调整代码行为的全局变量 ↓↓↓↓↓↓
 
@@ -146,40 +195,91 @@ class Widget(OWWidget):
 
         # 删除未选的井名
         dataYLDrun = dataYLDrun[dataYLDrun[self.currentWellNameCol].isin(self.selectedWellName)]
+        if dataYLDrun.empty:
+            self.warning('未选择有效井名')
+            return
 
-        # # 执行
-        # result = self.yalie_shizongji(dataYLDrun, dataSZJDictrun, self.selectedWellName, self.currentWellNameCol,
-        #                               self.getIndexCol('层号索引'))
-
-        # # 输出所有调用到的参数
-        # print('dataYLDrun:', dataYLDrun)
-        # print('dataSZJDictrun:', dataSZJDictrun)
-        # print('selectedWellName:', self.selectedWellName)
-        # print('currentWellNameCol:', self.currentWellNameCol)
-        # print('getIndexCol:', self.getIndexCol('层号索引'))
-        #
-        # 获取时间索引的参数
         timeIndexCol = self.getTimeIndexCol('水')
-        print('timeIndexCol:', timeIndexCol)
-
         modetypes = runmain.get_modetypeslists(start_day=self.start_day1, end_day=self.end_day1, day=self.day1,
                                                choicetype=self.choicetype1)
 
-        result = runmain.yalie_shizongji(self.inputpathYLD, self.inputpathSZJ, wellname=self.currentWellNameCol,
-                                         zonename=self.getIndexCol('层号索引'), time_index=timeIndexCol,
-                                         start_day=self.start_day1, end_day=self.end_day1, day=self.day1,
-                                         kindtype=self.kindtype1, processtype=self.processtype1,
-                                         modetypes=modetypes,
-                                         nanlists=[-10000, -99999, -9999, -999.99, -999.25, -999, 999, 999.25, 9999,
-                                                   99999])
+        yld_path, szj_path = self.prepare_runtime_inputs(dataYLDrun, dataSZJDictrun)
+        started = ThreadUtils_w.startAsyncTask(
+            self, self._run_link_task, self._on_run_finished,
+            yld_path=yld_path, szj_path=szj_path, wellname=self.currentWellNameCol,
+            zonename=self.getIndexCol('层号索引'), time_index=timeIndexCol,
+            start_day=self.start_day1, end_day=self.end_day1, day=self.day1,
+            kindtype=self.kindtype1, processtype=self.processtype1, modetypes=modetypes
+        )
+        if not started:
+            self.warning('当前已有任务在运行，请稍后再试')
 
-        # 保存
+    def prepare_runtime_inputs(self, dataYLDrun, dataSZJDictrun):
+        runtime_root = os.path.join('./config_Cengduan', self.name, 'runtime_inputs')
+        os.makedirs(runtime_root, exist_ok=True)
+        yld_path = self.inputpathYLD if self.inputpathYLD and os.path.isfile(self.inputpathYLD) else os.path.join(runtime_root, '压裂段数据.xlsx')
+        if not (self.inputpathYLD and os.path.isfile(self.inputpathYLD)):
+            dataYLDrun.to_excel(yld_path, index=False)
+        szj_path = self.inputpathSZJ if self.inputpathSZJ and os.path.isdir(self.inputpathSZJ) else os.path.join(runtime_root, '示踪剂数据')
+        if not (self.inputpathSZJ and os.path.isdir(self.inputpathSZJ)):
+            os.makedirs(szj_path, exist_ok=True)
+            for fn in os.listdir(szj_path):
+                fp = os.path.join(szj_path, fn)
+                if os.path.isfile(fp):
+                    os.remove(fp)
+            for well, sheet_dict in dataSZJDictrun.items():
+                out_file = os.path.join(szj_path, f'{well}.xlsx')
+                with pd.ExcelWriter(out_file) as writer:
+                    for sheet, df in sheet_dict.items():
+                        df.to_excel(writer, sheet_name=str(sheet)[:31], index=False)
+        return yld_path, szj_path
+
+    def _run_link_task(self, *, yld_path, szj_path, wellname, zonename, time_index, start_day, end_day, day, kindtype, processtype, modetypes, setProgress=None, isCancelled=None):
+        if setProgress:
+            setProgress(5)
+        if isCancelled():
+            return None
+        result = runmain.yalie_shizongji(yld_path, szj_path, wellname=wellname, zonename=zonename, time_index=time_index,
+                                         start_day=start_day, end_day=end_day, day=day, kindtype=kindtype,
+                                         processtype=processtype, modetypes=modetypes,
+                                         nanlists=[-10000, -99999, -9999, -999.99, -999.25, -999, 999, 999.25, 9999, 99999])
+        if setProgress:
+            setProgress(95)
+        return result
+
+    def _on_run_finished(self, f):
+        try:
+            result = f.result()
+        except Exception as e:
+            self.warning(''.join(getattr(e, 'args', [str(e)])))
+            return
+        if result is None or result.empty:
+            self.error('未生成结果数据')
+            return
         self.save(result)
-
-        # 发送
         self.Outputs.table.send(table_from_frame(result))
         self.Outputs.data.send([result])
-        self.Outputs.raw.send({'maindata': result, 'target': [], 'future': []})
+        raw = {'maindata': result, 'target': [], 'future': []}
+        self.Outputs.raw.send(raw)
+        self.Outputs.payload.send(self.build_output_payload(result, raw))
+
+    def build_output_payload(self, result, raw):
+        if self.payloadYLD_input is not None or self.payloadSZJ_input is not None:
+            payloads = {}
+            if self.payloadYLD_input is not None:
+                payloads['fracture'] = self.payloadYLD_input
+            if self.payloadSZJ_input is not None:
+                payloads['tracer'] = self.payloadSZJ_input
+            out = PayloadManager.merge_payloads(node_name=self.name, input_payloads=payloads, node_type='merge', task='link_tracer_fracture', data_kind='linked_table')
+        else:
+            out = PayloadManager.empty_payload(node_name=self.name, node_type='merge', task='link_tracer_fracture', data_kind='linked_table')
+        table = table_from_frame(result)
+        item = PayloadManager.make_item(file_path=self._last_saved_file_path, orange_table=table, dataframe=result, role='main')
+        out = PayloadManager.replace_items(out, [item], data_kind='linked_table')
+        out = PayloadManager.set_result(out, orange_table=table, dataframe=result, extra={'saved_file_path': self._last_saved_file_path})
+        out = PayloadManager.update_context(out, wellname_col=self.currentWellNameCol, selected_wells=list(self.selectedWellName or []))
+        out['legacy'].update({'raw': raw})
+        return out
 
     def read(self):
         """读取数据方法"""

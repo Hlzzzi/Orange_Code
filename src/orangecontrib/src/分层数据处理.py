@@ -20,6 +20,8 @@ from PyQt5.QtWidgets import (
 )
 
 from .pkg.zxc import ThreadUtils_w
+from ..payload_manager import PayloadManager
+
 
 
 class Widget(OWWidget):
@@ -37,6 +39,7 @@ class Widget(OWWidget):
     class Inputs:
         # 分层数据：通过【测井数据加载】控件【单文件选择】功能载入
         data = Input("分层数据", list, auto_summary=False)
+        payload = Input("payload", dict, auto_summary=False)
 
     data: pandas.DataFrame = None
 
@@ -50,11 +53,29 @@ class Widget(OWWidget):
         else:
             self.data: pandas.DataFrame = None
 
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+        self.input_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='process', task='layer_process', data_kind='table_batch')
+        df = PayloadManager.get_single_dataframe(self.input_payload)
+        if df is None:
+            table = PayloadManager.get_single_table(self.input_payload)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+        self.data = df.copy() if df is not None else None
+        self.destTable.setRowCount(0)
+        self.read()
+
     class Outputs:
         # if there are two or more outputs, default=True marks the default output
         table = Output("分层数据Table", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("分层数据List", list, auto_summary=False)  # 输出给【分层数据处理】控件
         raw = Output("分层数据Dict", dict, auto_summary=False)  # 带有用户设置的输出，输出给【岩心自动归位】控件
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -62,6 +83,8 @@ class Widget(OWWidget):
 
     auto_send = Setting(False)
     save_radio = Setting(2)
+    input_payload = None
+    _last_saved_file_path = ''
 
     # ↓↓↓↓↓↓ 一些可以调整代码行为的全局变量 ↓↓↓↓↓↓
 
@@ -150,10 +173,12 @@ class Widget(OWWidget):
         # 发送
         self.Outputs.table.send(table_from_frame(result))
         self.Outputs.data.send([table_from_frame(result)])
-        self.Outputs.raw.send(
-            {self.dict_output_data_key: result, self.dict_output_wellname_key: self.output_wellname_col,
+        raw = {self.dict_output_data_key: result, self.dict_output_wellname_key: self.output_wellname_col,
              self.dict_output_top_key: self.output_top_col, self.dict_output_bot_key: self.output_bot_col,
-             self.dict_output_zone_key: self.output_zone_col, self.dict_output_target_key: self.target_list})
+             self.dict_output_zone_key: self.output_zone_col, self.dict_output_target_key: self.target_list}
+        self.Outputs.raw.send(raw)
+        out = self.build_output_payload(result, raw)
+        self.Outputs.payload.send(out)
 
     def read(self):
         """读取数据方法"""
@@ -169,6 +194,15 @@ class Widget(OWWidget):
         # if self.auto_send:
         #     self.run()
         self.autoCommitCallback()
+
+    def build_output_payload(self, result: pandas.DataFrame, raw: dict):
+        out = PayloadManager.clone_payload(self.input_payload) if self.input_payload is not None else PayloadManager.empty_payload(node_name=self.name, node_type='process', task='layer_process', data_kind='linked_table')
+        item = PayloadManager.make_item(file_path=self._last_saved_file_path, orange_table=table_from_frame(result), dataframe=result, role='main', meta={'targets': list(self.target_list)})
+        out = PayloadManager.replace_items(out, [item], data_kind='linked_table')
+        out = PayloadManager.set_result(out, orange_table=item['orange_table'], dataframe=result, extra={'saved_file_path': self._last_saved_file_path})
+        out = PayloadManager.update_context(out, wellname_col=self.output_wellname_col, top_col=self.output_top_col, bot_col=self.output_bot_col, zone_col=self.output_zone_col, target_list=list(self.target_list))
+        out['legacy'].update({'raw': raw, 'data_list': [item['orange_table']]})
+        return out
 
     #################### 一些GUI操作方法 ####################
     TextType = ['object', 'category']
@@ -399,6 +433,7 @@ class Widget(OWWidget):
 
     def save(self, result: pandas.DataFrame):
         """保存文件"""
+        self._last_saved_file_path = ''
         outputPath = self.default_output_path
         if self.save_radio == 0:  # 默认路径
             pass
@@ -407,7 +442,8 @@ class Widget(OWWidget):
         else:
             return
         path = self.creat_path(os.path.join(outputPath, self.output_folder))
-        result.to_excel(os.path.join(path, self.output_file_name), index=False)
+        self._last_saved_file_path = os.path.join(path, self.output_file_name)
+        result.to_excel(self._last_saved_file_path, index=False)
 
     def merge_metas(self, table: Table, df: pandas.DataFrame):
         """防止meta数据丢失"""

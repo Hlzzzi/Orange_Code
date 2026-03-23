@@ -14,6 +14,8 @@ from PyQt5.QtWidgets import QGridLayout, QHeaderView, QTableWidget, QHBoxLayout,
 
 from .pkg import MyWidget
 from .pkg.zxc import ThreadUtils_w
+from ..payload_manager import PayloadManager
+
 
 
 class Widget(OWWidget):
@@ -33,6 +35,8 @@ class Widget(OWWidget):
         dataA = Input("实验数据", list, "set_dataA", auto_summary=False)
         # 页岩油分层处理数据：通过【测井数据加载】控件载入
         dataB = Input("分层处理数据", list, "set_dataB", auto_summary=False)
+        payloadA = Input("实验数据payload", dict, auto_summary=False)
+        payloadB = Input("分层处理数据payload", dict, auto_summary=False)
 
     dataA: Table = None
     dataB: Table = None
@@ -54,10 +58,40 @@ class Widget(OWWidget):
             # if self.dataA and self.auto_send: self.run()
             self.autoCommitCallback()
 
+
+    @Inputs.payloadA
+    def set_payloadA(self, payload):
+        if not payload:
+            self.payloadA_input = None
+            return
+        self.payloadA_input = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='clean', task='deduplicate_core', data_kind='table_batch')
+        table = PayloadManager.get_single_table(self.payloadA_input)
+        if table is None:
+            df = PayloadManager.get_single_dataframe(self.payloadA_input)
+            if df is not None:
+                table = table_from_frame(df)
+        if table is not None:
+            self.set_dataA([table])
+
+    @Inputs.payloadB
+    def set_payloadB(self, payload):
+        if not payload:
+            self.payloadB_input = None
+            return
+        self.payloadB_input = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='clean', task='deduplicate_core', data_kind='table_batch')
+        table = PayloadManager.get_single_table(self.payloadB_input)
+        if table is None:
+            df = PayloadManager.get_single_dataframe(self.payloadB_input)
+            if df is not None:
+                table = table_from_frame(df)
+        if table is not None:
+            self.set_dataB([table])
+
     class Outputs:
         # if there are two or more outputs, default=True marks the default output
         Yanxindata = Output("数据去重", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
         datawithmeta = Output("岩心数据", dict, auto_summary=False)  # 带有作用类型信息的输出，用于连接岩心自动归位部件
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -65,6 +99,9 @@ class Widget(OWWidget):
 
     auto_send = Setting(False)
     save_radio = Setting(2)
+    payloadA_input = None
+    payloadB_input = None
+    _last_saved_file_path = ''
 
     # ↓↓↓↓↓↓ 一些可以调整代码行为的全局变量 ↓↓↓↓↓↓
 
@@ -321,13 +358,14 @@ class Widget(OWWidget):
 
         self.save(result)
 
-        self._slot_send(
-            {
+        attr_type = {
                 self.dict_output_wellname_key: self.output_wellname_col,
                 self.dict_output_depth_key: self.output_depth_col,
                 self.dict_output_target_key: self._target_attr,
             }
-        )
+        self._slot_send(attr_type)
+        out = self.build_output_payload(result, attr_type)
+        self.Outputs.payload.send(out)
 
     def _slot_send(self, attr_type: dict):
         data0 = table_from_frame(self.data5)
@@ -335,6 +373,24 @@ class Widget(OWWidget):
         datawithmeta = {self.dict_output_data_key: self.data5}
         datawithmeta.update(attr_type)
         self.Outputs.datawithmeta.send(datawithmeta)
+
+    def build_output_payload(self, result: pandas.DataFrame, attr_type: dict):
+        if self.payloadA_input is not None or self.payloadB_input is not None:
+            payloads = {}
+            if self.payloadA_input is not None:
+                payloads['experiment'] = self.payloadA_input
+            if self.payloadB_input is not None:
+                payloads['layer'] = self.payloadB_input
+            out = PayloadManager.merge_payloads(node_name=self.name, input_payloads=payloads, node_type='clean', task='deduplicate_core', data_kind='linked_table')
+        else:
+            out = PayloadManager.empty_payload(node_name=self.name, node_type='clean', task='deduplicate_core', data_kind='linked_table')
+        table = table_from_frame(self.data5)
+        item = PayloadManager.make_item(file_path=self._last_saved_file_path, orange_table=table, dataframe=self.data5, role='main', meta={'target_attr': list(self._target_attr)})
+        out = PayloadManager.replace_items(out, [item], data_kind='linked_table')
+        out = PayloadManager.set_result(out, orange_table=table, dataframe=self.data5, extra={'saved_file_path': self._last_saved_file_path})
+        out = PayloadManager.update_context(out, wellname_col=self.output_wellname_col, depth_col=self.output_depth_col, target_attr=list(self._target_attr), sample_value=getattr(self, '_sample_value', None))
+        out['legacy'].update({'datawithmeta': {self.dict_output_data_key: self.data5, **attr_type}})
+        return out
 
     def label_welltops_processing(self, wellname, top='TOP', bot='BOTTOM', depth='depth', depth_index='Depth',
                                   label='label', sample=0.125, setProgress=None, isCancelled=None):
@@ -465,14 +521,17 @@ class Widget(OWWidget):
     #################### 辅助函数 ####################
     def save(self, result: pandas.DataFrame):
         """保存文件"""
+        self._last_saved_file_path = ''
         if self.save_radio == 0:  # 默认路径
             path = os.path.join(self.default_output_path, self.output_folder)
             self.creat_path(path)
-            result.to_excel(os.path.join(path, self.output_file_name), index=False)
+            self._last_saved_file_path = os.path.join(path, self.output_file_name)
+            result.to_excel(self._last_saved_file_path, index=False)
         elif self.save_radio == 1 and self.save_path:  # 自定义路径
             path = os.path.join(self.save_path, self.output_folder)
             self.creat_path(path)
-            result.to_excel(os.path.join(path, self.output_file_name), index=False)
+            self._last_saved_file_path = os.path.join(path, self.output_file_name)
+            result.to_excel(self._last_saved_file_path, index=False)
 
     def merge_metas(self, table: Table, df: pandas.DataFrame):
         """防止meta数据丢失"""

@@ -18,6 +18,7 @@ from orangewidget.utils.widgetpreview import WidgetPreview
 from Orange.data import table_from_frame
 import copy
 import os
+from ..payload_manager import PayloadManager
 
 
 class OWDataSamplerA(widget.OWWidget):
@@ -28,10 +29,12 @@ class OWDataSamplerA(widget.OWWidget):
 
     class Inputs:
         in_data_dict = Input("Data list(dict)", dict, auto_summary=False, multiple=True)
+        payload = Input("payload", dict, auto_summary=False, multiple=True)
 
     class Outputs:
         out_data_dict = Output("Data list(dict)", dict, auto_summary=False)
         out_data_table = Output("Data list(table)", Orange.data.Table)
+        payload = Output("payload", dict, auto_summary=False)
 
     # Inputs.data 中的data是变量名字，如：上面输入的data
     # 处理输入的数据
@@ -44,15 +47,56 @@ class OWDataSamplerA(widget.OWWidget):
                 self.input_delete_data(id)
             else:
                 self.input_delete_data(id)
-                self.input_new_data(input_data,id)
+                self.input_new_data(input_data, id)
 
         else:
             if input_data is not None:
-                self.input_new_data(input_data,id)
+                self.input_new_data(input_data, id)
         self.loading_data = False
 
         if self.auto_send and input_data is not None:
             self.send_data_to_next()
+
+    @Inputs.payload
+    def set_payload(self, payload, id):
+        self.loading_data = True
+        if id in self.input_payloads_id:
+            self.input_delete_payload(id)
+        if payload is not None:
+            self.input_new_payload(payload, id)
+        self.loading_data = False
+        if self.auto_send and payload is not None:
+            self.send_data_to_next()
+
+    def input_delete_payload(self, id):
+        filenames = self.input_payload_id_filenames.get(id, [])
+        for filename in filenames:
+            self.split_down_tablefile_data(filename)
+            if filename in self.mutiple_file_data_input:
+                del self.mutiple_file_data_input[filename]
+        self.input_payload_id_filenames.pop(id, None)
+        self.input_payloads_id.pop(id, None)
+        self.refrash_check_table()
+
+    def input_new_payload(self, payload, id):
+        fixed = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='process',
+                                              task='attribute_split_multi', data_kind='table_batch')
+        self.input_payloads_id[id] = fixed
+        self.input_payload_id_filenames[id] = []
+        for idx, item in enumerate(fixed.get('items', [])):
+            filename = item.get('file_stem') or os.path.splitext(item.get('file_name', ''))[0] or f'payload_{id}_{idx}'
+            while filename in self.mutiple_file_data_file or filename in self.mutiple_file_data_input:
+                filename = filename + '_1'
+            df = item.get('dataframe')
+            table = item.get('orange_table')
+            if df is None and table is not None:
+                from Orange.data.pandas_compat import table_to_frame
+                df = table_to_frame(table)
+            if df is None:
+                continue
+            self.mutiple_file_data_input[filename] = df.copy()
+            self.input_payload_id_filenames[id].append(filename)
+            self.add_one_file_data_to_table(filename, None, 1, 1)
 
     def input_delete_data(self, id):
         self.input_data_dicts_id.pop(id)
@@ -61,7 +105,7 @@ class OWDataSamplerA(widget.OWWidget):
         del self.input_data_id_filenames[id]
         self.refrash_check_table()
 
-    def input_new_data(self,input_data,id):
+    def input_new_data(self, input_data, id):
         self.input_data_dicts_id[id] = input_data
 
         file_name = input_data.get("filename")
@@ -95,8 +139,7 @@ class OWDataSamplerA(widget.OWWidget):
             for i in future:
                 temp_target_future[i] = 1
 
-        self.add_one_file_data_to_table(file_name, temp_target_future,1,1)
-
+        self.add_one_file_data_to_table(file_name, temp_target_future, 1, 1)
 
     # 是否开启主区域
     want_main_area = False
@@ -113,6 +156,8 @@ class OWDataSamplerA(widget.OWWidget):
     input_data_id_filenames = {}
 
     loading_data = False
+    input_payloads_id = {}
+    input_payload_id_filenames = {}
 
     def closeMywidget1(self):  # 确定键退出
         # if self.auto_send and self.input_data is not None:
@@ -182,6 +227,7 @@ class OWDataSamplerA(widget.OWWidget):
             send_list_table.append(table_from_frame(temp_file_data))
         self.Outputs.out_data_dict.send(send_list_dict)
         self.Outputs.out_data_table.send(send_list_table)
+        self.Outputs.payload.send(self.build_output_payload(send_list_dict, need_to_send_file_data, send_list_table))
 
     def __init__(self):
         super().__init__()
@@ -248,7 +294,23 @@ class OWDataSamplerA(widget.OWWidget):
         self.reset_all_data()
         print("success delete")
         super().onDeleteWidget()
-    
+
+    def build_output_payload(self, send_list_dict, need_to_send_file_data, send_list_table):
+        out = PayloadManager.empty_payload(node_name=self.name, node_type='process', task='attribute_split_multi',
+                                           data_kind='table_batch')
+        items = []
+        for idx, temp_file_name in enumerate(need_to_send_file_data.keys()):
+            df = need_to_send_file_data[temp_file_name]
+            items.append(PayloadManager.make_item(file_path='', orange_table=send_list_table[idx] if idx < len(
+                send_list_table) else None, dataframe=df, role='main', meta={'file_name': temp_file_name}))
+        out = PayloadManager.replace_items(out, items, data_kind='table_batch')
+        out = PayloadManager.set_result(out, orange_table=send_list_table[0] if send_list_table else None,
+                                        dataframe=list(need_to_send_file_data.values())[
+                                            0] if need_to_send_file_data else None)
+        out = PayloadManager.update_context(out, attribute_map=self.get_combo_data_to_send())
+        out['legacy'].update({'data_dict_list': send_list_dict})
+        return out
+
     def reset_all_data(self):
         self.outpath = ""
         self.mutiple_file_data_file.clear()
@@ -262,7 +324,8 @@ class OWDataSamplerA(widget.OWWidget):
         self.down_table.clear()
         self.input_data_dicts_id.clear()
         self.input_data_id_filenames.clear()
-
+        self.input_payloads_id.clear()
+        self.input_payload_id_filenames.clear()
 
     def get_outpath(self):
         self.outpath = QFileDialog.getExistingDirectory(self, "选取文件夹", "./")
@@ -281,7 +344,7 @@ class OWDataSamplerA(widget.OWWidget):
         # 获取当前路径下的所有文件
         file_list = os.listdir(self.outpath)
         for old_file_name in self.mutiple_file_data_file.keys():
-            print("old_file_name",old_file_name)
+            print("old_file_name", old_file_name)
             self.split_down_tablefile_data(old_file_name)
         self.mutiple_file_data_file.clear()
         self.refrash_check_table()
@@ -320,11 +383,11 @@ class OWDataSamplerA(widget.OWWidget):
                     self.error("暂不支持该文件类型读取:", file_type)
 
         for file_name in self.mutiple_file_data_file.keys():
-            self.add_one_file_data_to_table(file_name, None,1,0)
+            self.add_one_file_data_to_table(file_name, None, 1, 0)
 
         self.loading_data = False
 
-    def add_one_file_data_to_table(self, file_name, target_future: list, mode=1,is_input:int = 1):
+    def add_one_file_data_to_table(self, file_name, target_future: list, mode=1, is_input: int = 1):
         if is_input == 1:
             temp = self.get_combo_data_categorical(self.mutiple_file_data_input.get(file_name))
         elif is_input == 0:
@@ -402,8 +465,8 @@ class OWDataSamplerA(widget.OWWidget):
             )
             index += 1
 
-            
     now_rename = False
+
     def rename_mid_table_data(self, value: QTableWidgetItem):
         if self.loading_data or self.now_rename:
             return
@@ -646,17 +709,17 @@ class OWDataSamplerA(widget.OWWidget):
             else:
                 return
             if (
-                parent.checkState() == Qt.Checked
-                or parent.checkState() == Qt.PartiallyChecked
+                    parent.checkState() == Qt.Checked
+                    or parent.checkState() == Qt.PartiallyChecked
             ):
                 parent.setCheckState(Qt.Checked)
                 for i in child:
                     i.setCheckState(Qt.Checked)
                 self.down_table_data.clear()
                 for file_name in self.mutiple_file_data_file.keys():
-                    self.add_one_file_data_to_table(file_name, None, 0,-1)
+                    self.add_one_file_data_to_table(file_name, None, 0, -1)
                 for file_name in self.mutiple_file_data_input.keys():
-                    self.add_one_file_data_to_table(file_name, None, 1,-1)
+                    self.add_one_file_data_to_table(file_name, None, 1, -1)
             else:
                 for i in child:
                     parent.setCheckState(Qt.Unchecked)
@@ -690,7 +753,7 @@ class OWDataSamplerA(widget.OWWidget):
                 return
             elif child[row - 1].isChecked():
                 file_name = self.mid_table["table"].item(row, 1).text()
-                self.add_one_file_data_to_table(file_name, None, 0,-1)
+                self.add_one_file_data_to_table(file_name, None, 0, -1)
             else:
                 file_name = self.mid_table["table"].item(row, 1).text()
                 self.split_down_tablefile_data(file_name)

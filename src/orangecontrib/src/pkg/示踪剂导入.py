@@ -14,6 +14,7 @@ from collections import Counter
 import seaborn as sns
 from math import sqrt
 import matplotlib.pyplot as plt
+from scipy import stats as sts
 import matplotlib.pylab as pylab
 import matplotlib
 
@@ -378,7 +379,6 @@ def Time_series_interpolate(data, targets, time_index='date',
 
 
 def get_parameter(sig, modetype='平均值'):
-    import stats as sts
     import numpy as np
     if modetype == '个数' or modetype == 'count':
         return len(sig)
@@ -389,19 +389,19 @@ def get_parameter(sig, modetype='平均值'):
     elif modetype == '方差' or modetype == 'var':
         return sig.var()  # var
     elif modetype == '偏度' or modetype == 'skewness':
-        return sts.skewness(sig)
+        return sts.skew(sig)
     elif modetype == '峰度' or modetype == 'kurtosis':
         return sts.kurtosis(sig)
     elif modetype == '求和' or modetype == 'sum':
         return np.sum(sig)
     elif modetype == '众数' or modetype == 'mode':
-        return sts.mode(sig)
+        return sts.mode(sig, keepdims=False).mode
     elif modetype == '中位数' or modetype == 'median':
         return np.median(sig)
     elif modetype == '上四分位数' or modetype == 'quantile25':
-        return sts.quantile(sig, p=0.25)
+        return np.quantile(sig, 0.25)
     elif modetype == '下四分位数' or modetype == 'quantile75':
-        return sts.quantile(sig, p=0.75)
+        return np.quantile(sig, 0.75)
     elif modetype == '最大值' or modetype == 'max':
         return np.max(sig)
     elif modetype == '最小值' or modetype == 'min':
@@ -409,7 +409,7 @@ def get_parameter(sig, modetype='平均值'):
     elif modetype == '极差' or modetype == 'Range':
         return np.max(sig) - np.min(sig)
     elif modetype == '四分位差' or modetype == 'quantile_delta':
-        return sts.quantile(sig, p=0.75) - sts.quantile(sig, p=0.25)
+        return np.quantile(sig, 0.75) - sts.quantile(sig, p=0.25)
     elif modetype == '离散系数' or modetype == 'Zscore':
         return np.std(sig) / np.mean(sig)
 
@@ -638,7 +638,7 @@ def interpolation_value(data_gp, time_index='date_time', target='ecpm_tomorrow',
 
     plt.scatter(resx_list, resy_list)
     plt.plot(resx_list, resy_list)
-    plt.show()
+    plt.close()
 
     df = {
         time_index: resx_list,

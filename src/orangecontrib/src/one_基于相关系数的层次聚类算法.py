@@ -26,6 +26,7 @@ from Orange.widgets.data.owdatasets import FutureWatcher
 from Orange.widgets.utils.concurrent import ThreadExecutor
 from Orange.widgets.widget import Input, Output
 from orangewidget.utils.widgetpreview import WidgetPreview
+from ..payload_manager import PayloadManager
 
 from .pkg import No5基于相关系数的层次聚类 as no5
 
@@ -73,7 +74,8 @@ class OWDataSamplerA(widget.OWWidget):
     class Inputs:
         data = Input("Data list", dict, auto_summary=False)
         data_file_data_list = Input("Table_list", list, auto_summary=False)
-    
+        payload = Input("payload", dict, auto_summary=False)
+
     @Inputs.data_file_data_list
     def set_data_file_data_list(self, data_file_data_list):
         if data_file_data_list is None:
@@ -81,19 +83,18 @@ class OWDataSamplerA(widget.OWWidget):
             return
         temp_data = table_to_frame(data_file_data_list[0])
         self.merge_metas(data_file_data_list[0], temp_data)
-        data_name_data_dict  = {}
+        data_name_data_dict = {}
         data_name_data_dict["maindata"] = temp_data
         # print(temp_data)
         # 获取标题
         title = temp_data.columns.values.tolist()
         if (len(title) > 1):
-            data_name_data_dict["target"] = [ title[0] ]
-            data_name_data_dict["future"] = [ title[1] ]
+            data_name_data_dict["target"] = [title[0]]
+            data_name_data_dict["future"] = [title[1]]
         else:
             self.error("数据太小了，必须大于两列")
             return
         self.set_data_list(data_name_data_dict)
-
 
     @Inputs.data
     def set_data_list(self, data_list):
@@ -107,9 +108,9 @@ class OWDataSamplerA(widget.OWWidget):
             return
 
         if (
-            not isinstance(maindata, pd.DataFrame)
-            or not isinstance(target, list)
-            or not isinstance(future, list)
+                not isinstance(maindata, pd.DataFrame)
+                or not isinstance(target, list)
+                or not isinstance(future, list)
         ):
             print(type(maindata), type(target), type(future))
             self.error("输入数据类型错误")
@@ -138,14 +139,92 @@ class OWDataSamplerA(widget.OWWidget):
         self.set_target_future(future)
         self.set_up_left_table_data(self.set_num_or_text(maindata))
         self.set_combo_left_mid()
-        
+
+    @Inputs.payload
+    def set_payload(self, payload):
+        if not payload:
+            self.input_payload = None
+            return
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="process",
+            task="cluster",
+            data_kind="table_batch",
+        )
+        self.set_data_list(self._legacy_from_payload(self.input_payload))
+
+    def _legacy_from_payload(self, payload):
+        df = PayloadManager.get_single_dataframe(payload)
+        if df is None:
+            table = PayloadManager.get_single_table(payload)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+        if df is None:
+            return {"maindata": pd.DataFrame(), "target": [], "future": []}
+
+        legacy = payload.get("legacy", {}) if isinstance(payload, dict) else {}
+        data_dict = legacy.get("data_dict") or {}
+        target = data_dict.get("target") or legacy.get("target") or payload.get("context", {}).get("target") or []
+        future = data_dict.get("future") or legacy.get("future") or payload.get("context", {}).get("features") or []
+        wellname = data_dict.get("wellname") or legacy.get("wellname") or payload.get("context", {}).get(
+            "wellname") or []
+
+        cols = df.columns.tolist()
+        if not target and cols:
+            target = [cols[0]]
+        if not future and len(cols) > 1:
+            future = cols[1:]
+
+        return {
+            "maindata": df.copy(),
+            "target": list(target) if isinstance(target, (list, tuple)) else [target],
+            "future": list(future) if isinstance(future, (list, tuple)) else [future],
+            "wellname": wellname,
+        }
+
+    def build_output_payload(self, main_big_table):
+        if getattr(self, "input_payload", None) is not None:
+            base = PayloadManager.clone_payload(self.input_payload)
+        else:
+            base = PayloadManager.empty_payload(
+                node_name=self.name,
+                node_type="process",
+                task="cluster",
+                data_kind="table_batch",
+            )
+
+        items = []
+        if main_big_table.get("maindata") is not None:
+            main_table = table_from_frame(main_big_table["maindata"])
+            items.append(
+                PayloadManager.make_item(orange_table=main_table, dataframe=main_big_table["maindata"], role="main"))
+        if self.output_data.get("matrix") is not None:
+            matrix_table = table_from_frame(self.output_data["matrix"])
+            items.append(PayloadManager.make_item(orange_table=matrix_table, dataframe=self.output_data["matrix"],
+                                                  role="matrix"))
+            target = self.get_future_target()[1]
+            if target is not None:
+                bar_df = self.get_pd_data_one_colunm(self.output_data["matrix"], target[0])
+                bar_table = table_from_frame(bar_df)
+                items.append(PayloadManager.make_item(orange_table=bar_table, dataframe=bar_df, role="bar"))
+        base = PayloadManager.replace_items(base, items, data_kind="table_batch")
+        if main_big_table.get("maindata") is not None:
+            base = PayloadManager.set_result(base, dataframe=main_big_table["maindata"],
+                                             orange_table=table_from_frame(main_big_table["maindata"]))
+        base = PayloadManager.update_context(base, target=main_big_table.get("target", []),
+                                             future=main_big_table.get("future", []),
+                                             wellname=main_big_table.get("wellname", []))
+        base["legacy"].update({"data_dict": main_big_table})
+        return base
 
     class Outputs:
         data_list = Output("Data list", dict, auto_summary=False)
         data_table = Output("基于相关系数的层次聚类算法数据(table)", Orange.data.Table, auto_summary=False)
         data_matrix = Output("矩阵数据(table)", Orange.data.Table, auto_summary=False)
         data_tiao = Output("条形图数据(table)", Orange.data.Table, auto_summary=False)
-
+        payload = Output("payload", dict, auto_summary=False)
 
     def launch_task(self):
         futures = self._executor.submit(
@@ -155,7 +234,7 @@ class OWDataSamplerA(widget.OWWidget):
             outpath0=self.outpath,
             parent=self,
             savemod=self.radio_1,
-            select_mode = self.modle_select_combo.currentIndex(),
+            select_mode=self.modle_select_combo.currentIndex(),
             cut_corr=self.cut_corr
         )
         self._task = Task()
@@ -173,7 +252,7 @@ class OWDataSamplerA(widget.OWWidget):
     want_main_area = False
     auto_send = True
     input_data = [[], []]
-    output_data = {} 
+    output_data = {}
     para_list = {}
 
     radio_1 = 0
@@ -260,10 +339,12 @@ class OWDataSamplerA(widget.OWWidget):
             self.Outputs.data_matrix.send(table_from_frame(self.output_data.get("matrix")))
             target = self.get_future_target()[1]
             if target is not None:
-                self.Outputs.data_tiao.send(table_from_frame(self.get_pd_data_one_colunm(self.output_data.get("matrix"),target[0])))
+                self.Outputs.data_tiao.send(
+                    table_from_frame(self.get_pd_data_one_colunm(self.output_data.get("matrix"), target[0])))
 
             else:
                 print("target is None")
+            self.Outputs.payload.send(self.build_output_payload(main_big_table))
         # 这里可以senddata到下一个组件。
 
     # 这个和Task的cancel不一样，这个是组件的取消
@@ -329,7 +410,7 @@ class OWDataSamplerA(widget.OWWidget):
         self.bottom_box2_3.hide()
 
         self.modle_select_combo = gui.comboBox(
-            bottom_box2,master=self,items=["特征选择数","阈阀值特征选择","相对百分比特征选择"],value=""
+            bottom_box2, master=self, items=["特征选择数", "阈阀值特征选择", "相对百分比特征选择"], value=""
         )
         self.modle_select_combo.wheelEvent = lambda event: None
         gui.lineEdit(
@@ -550,11 +631,11 @@ class OWDataSamplerA(widget.OWWidget):
         for data in data_list.keys():
             temp = self.target_future.get(data)
             if temp is None and data in now_title:
-                print("data:",data)
+                print("data:", data)
                 self.target_future[data] = data_list[data]
         print(self.target_future)
-        temp1 = [] # 特征属性 future 值：1
-        temp2 = [] # 目标属性 target 值：2
+        temp1 = []  # 特征属性 future 值：1
+        temp2 = []  # 目标属性 target 值：2
         # 获取目标属性和特征属性
         for data in self.target_future.keys():
             if self.target_future[data] == 1:
@@ -688,7 +769,6 @@ class OWDataSamplerA(widget.OWWidget):
 
         return ret_list
 
-
     # 获取pd表格的第一列的数据和标题相同的一列
     def get_pd_data_one_colunm(self, data: pd.DataFrame, colunm_name: str):
         # 获取第一列数据
@@ -703,7 +783,6 @@ class OWDataSamplerA(widget.OWWidget):
         data = flag_data.sort_values(ascending=False)
         return data
 
-
     # 获取future 和 target
     def get_future_target(self):
         # 获取future
@@ -714,7 +793,7 @@ class OWDataSamplerA(widget.OWWidget):
         target = []
         for i in range(self.table_right_2.rowCount()):
             target.append(self.table_right_2.item(i, 0).text())
-        
+
         if len(target) != 1:
             self.error("需要一个target")
             return [None, None]

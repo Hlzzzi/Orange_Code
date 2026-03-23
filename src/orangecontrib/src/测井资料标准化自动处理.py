@@ -15,6 +15,8 @@ from PyQt5.QtWidgets import QGridLayout, QHeaderView, QComboBox, QTableWidget, Q
 
 from .pkg import MyWidget
 from .pkg.zxc import ThreadUtils_w
+from ..payload_manager import PayloadManager
+
 
 
 class Widget(OWWidget):
@@ -36,6 +38,9 @@ class Widget(OWWidget):
         dataA_names = Input("井名列表", list, auto_summary=False)
         # 分层数据：通过【测井数据加载】控件【单文件选择】功能载入，或通过【分层数据处理】控件载入
         dataB = Input("分层数据", list, auto_summary=False)
+        # 标准 payload 输入
+        payloadA = Input("测井数据payload", dict, auto_summary=False)
+        payloadB = Input("分层数据payload", dict, auto_summary=False)
 
     dataA = None
     dataA_names = None
@@ -71,11 +76,54 @@ class Widget(OWWidget):
         else:
             self.dataB: pandas.DataFrame = None
 
+
+    @Inputs.payloadA
+    def set_payloadA(self, payload):
+        if not payload:
+            self.payloadA_input = None
+            return
+        self.payloadA_input = PayloadManager.ensure_payload(
+            payload, node_name=self.name, node_type="process", task="normalize_logging", data_kind="table_batch"
+        )
+        dfs = PayloadManager.get_dataframes(self.payloadA_input)
+        if not dfs:
+            tables = PayloadManager.get_tables(self.payloadA_input)
+            dfs = []
+            for table in tables:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+                dfs.append(df)
+        self.dataA = [df.copy() for df in dfs]
+        names = []
+        for item in self.payloadA_input.get('items', []):
+            stem = item.get('file_stem') or os.path.splitext(item.get('file_name', ''))[0]
+            names.append(stem or item.get('file_name', ''))
+        self.dataA_names = names if names else PayloadManager.get_file_names(self.payloadA_input)
+        self.read()
+
+    @Inputs.payloadB
+    def set_payloadB(self, payload):
+        if not payload:
+            self.payloadB_input = None
+            return
+        self.payloadB_input = PayloadManager.ensure_payload(
+            payload, node_name=self.name, node_type="process", task="normalize_logging", data_kind="table_batch"
+        )
+        df = PayloadManager.get_single_dataframe(self.payloadB_input)
+        if df is None:
+            table = PayloadManager.get_single_table(self.payloadB_input)
+            if table is not None:
+                df = table_to_frame(table)
+                self.merge_metas(table, df)
+        self.dataB = df.copy() if df is not None else None
+        self.read()
+
     class Outputs:
         # if there are two or more outputs, default=True marks the default output
         table_list = Output("测井数据List", list, default=True, auto_summary=False)  # 存放纯Table数据的list
         name_list = Output("井名List", list, auto_summary=False)  # 存放井名的list
         data = Output("测井数据Dict", dict, auto_summary=False)  # 带有作用类型信息的输出，用于连接岩心自动归位部件
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -83,6 +131,10 @@ class Widget(OWWidget):
 
     auto_send = Setting(False)
     save_radio = Setting(2)
+    payloadA_input = None
+    payloadB_input = None
+    _last_saved_files = None
+    _last_save_dir = ""
 
     # ↓↓↓↓↓↓ 一些可以调整代码行为的全局变量 ↓↓↓↓↓↓
 
@@ -221,6 +273,8 @@ class Widget(OWWidget):
                    self.dict_output_feature_key: self._feature_list, self.dict_output_target_key: self._target_list,
                    self.dict_output_log_key: self._log_list, self.dict_output_keywell_key: self._key_well_list}
         self.Outputs.data.send(output2)
+        output_payload = self.build_output_payload(result, output, output_names, output2)
+        self.Outputs.payload.send(output_payload)
 
     def read(self):
         """读取数据方法"""
@@ -254,6 +308,32 @@ class Widget(OWWidget):
         # if self.auto_send:
         #     self.run()
         self.autoCommitCallback()
+
+    def build_output_payload(self, result: list, output_tables: list, output_names: list, raw_output: dict):
+        if self.payloadA_input is not None or self.payloadB_input is not None:
+            input_payloads = {}
+            if self.payloadA_input is not None:
+                input_payloads['logging'] = self.payloadA_input
+            if self.payloadB_input is not None:
+                input_payloads['layer'] = self.payloadB_input
+            out = PayloadManager.merge_payloads(
+                node_name=self.name, input_payloads=input_payloads, node_type='process', task='normalize_logging', data_kind='table_batch'
+            )
+        else:
+            out = PayloadManager.empty_payload(node_name=self.name, node_type='process', task='normalize_logging', data_kind='table_batch')
+        items = []
+        saved_files = self._last_saved_files or []
+        for i, df in enumerate(result[0]):
+            fp = saved_files[i] if i < len(saved_files) else ''
+            items.append(PayloadManager.make_item(
+                file_path=fp, orange_table=output_tables[i] if i < len(output_tables) else None, dataframe=df,
+                sheet_name='', role='main', meta={'wellname': output_names[i] if i < len(output_names) else ''}
+            ))
+        out = PayloadManager.replace_items(out, items, data_kind='table_batch')
+        out = PayloadManager.set_result(out, orange_table=output_tables[0] if output_tables else None, dataframe=result[0][0] if result[0] else None, extra={'file_name_list': output_names})
+        out = PayloadManager.update_context(out, depth_index=self._depth_index, feature_list=self._feature_list, target_list=self._target_list, log_list=self._log_list, key_well_list=self._key_well_list, save_dir=self._last_save_dir)
+        out['legacy'].update({'table_list': output_tables, 'name_list': output_names, 'data_dict': raw_output})
+        return out
 
     #################### 一些GUI操作方法 ####################
     def autoCommitCallback(self):
@@ -940,9 +1020,10 @@ class Widget(OWWidget):
 
     def save(self, result: list):
         """保存文件"""
+        self._last_saved_files = []
+        self._last_save_dir = ''
         outputPath = self.default_output_path
         if self.save_radio == 0:  # 默认路径
-            # outputPath = self.default_output_path
             pass
         elif self.save_radio == 1 and self.save_path:  # 自定义路径
             outputPath = self.save_path
@@ -952,17 +1033,27 @@ class Widget(OWWidget):
         path = os.path.join(outputPath, self.output_folder)
         path = os.path.join(self.creat_path(path), self.output_subfolder)
         self.creat_path(path)
+        self._last_save_dir = path
         for i in range(len(result[0])):
-            self.saveFile(data=result[0][i], path=path, filename=result[1][i])
+            saved = self.saveFile(data=result[0][i], path=path, filename=result[1][i])
+            if saved:
+                self._last_saved_files.append(saved)
 
     def saveFile(self, data, path, filename):
         saveMode = self.saveModeCombo.currentText().lower()
         if saveMode == 'txt':
-            data.to_csv(os.path.join(path, filename + '.txt'), sep=' ', index=False)
+            full_path = os.path.join(path, filename + '.txt')
+            data.to_csv(full_path, sep=' ', index=False)
+            return full_path
         elif saveMode == 'las':
-            self.las_save(data, (os.path.join(path, filename + '.las')), self.wellname_col)
+            full_path = os.path.join(path, filename + '.las')
+            self.las_save(data, full_path, self.wellname_col)
+            return full_path
         elif saveMode == 'csv':
-            data.to_csv(os.path.join(path, filename + '.csv'), index=False)
+            full_path = os.path.join(path, filename + '.csv')
+            data.to_csv(full_path, index=False)
+            return full_path
+        return ''
 
     def las_save(self, data, savefile, well):
         import lasio

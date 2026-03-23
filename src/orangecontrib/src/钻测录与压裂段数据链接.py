@@ -12,6 +12,10 @@ from PyQt5.QtWidgets import QGridLayout, QTableWidget, QHBoxLayout, \
     QCheckBox, QAbstractItemView
 
 from .pkg import MyWidget
+from .pkg.zxc import ThreadUtils_w
+from ..payload_manager import PayloadManager
+
+
 
 
 class Widget(OWWidget):
@@ -33,6 +37,8 @@ class Widget(OWWidget):
         dataZCL = Input("钻测录数据", list, auto_summary=False)
         # 钻测录数据文件名：通过修改后（增加了文件名list输出）的【测井数据加载】控件载入
         dataZCL_names = Input("钻测录井名", list, auto_summary=False)
+        payloadYLD = Input("压裂段payload", dict, auto_summary=False)
+        payloadZCL = Input("钻测录payload", dict, auto_summary=False)
 
     dataYLD: pd.DataFrame = None
     dataZCL: list = None  # list[pd.DataFrame]
@@ -80,17 +86,55 @@ class Widget(OWWidget):
         else:
             self.dataZCL_names = None
 
+
+    @Inputs.payloadYLD
+    def set_payloadYLD(self, payload):
+        if not payload:
+            self.payloadYLD_input = None
+            return
+        self.payloadYLD_input = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='merge', task='link_logging_fracture', data_kind='table_batch')
+        df = PayloadManager.get_single_dataframe(self.payloadYLD_input)
+        if df is None:
+            table = PayloadManager.get_single_table(self.payloadYLD_input)
+            if table is not None:
+                df = table_to_frame(table); self.merge_metas(table, df)
+        self.dataYLD = df.copy() if df is not None else None
+        self.read()
+
+    @Inputs.payloadZCL
+    def set_payloadZCL(self, payload):
+        if not payload:
+            self.payloadZCL_input = None
+            return
+        self.payloadZCL_input = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='merge', task='link_logging_fracture', data_kind='table_batch')
+        self.dataZCL = []
+        self.dataZCL_names = []
+        for item in self.payloadZCL_input.get('items', []):
+            df = item.get('dataframe')
+            table = item.get('orange_table')
+            if df is None and table is not None:
+                df = table_to_frame(table); self.merge_metas(table, df)
+            if df is None:
+                continue
+            self.dataZCL.append(df.copy())
+            self.dataZCL_names.append(item.get('file_stem') or os.path.splitext(item.get('file_name', ''))[0] or item.get('file_name', ''))
+        self.read()
+
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
         table = Output("数据Table", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
         data = Output("数据List", list, auto_summary=False)  # 输出给控件
         raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
+        payload = Output("payload", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
         self.run()
 
     save_radio = Setting(2)
+    payloadYLD_input = None
+    payloadZCL_input = None
+    _last_saved_file_path = ''
 
     # ↓↓↓↓↓↓ 一些可以调整代码行为的全局变量 ↓↓↓↓↓↓
 
@@ -133,26 +177,64 @@ class Widget(OWWidget):
 
         self.clear_messages()
 
-        # 删除忽略的列
         dataYLDrun = self.dataYLD.drop(columns=self.getIgnoreColsList('压裂段'), inplace=False)
         dataZCLDictrun = {}
         for key in self.dataZCLDict.keys():
-            dataZCLDictrun[key] = self.dataZCLDict[key].drop(columns=self.getIgnoreColsList('钻测录'), inplace=False,
-                                                             errors='ignore')
+            dataZCLDictrun[key] = self.dataZCLDict[key].drop(columns=self.getIgnoreColsList('钻测录'), inplace=False, errors='ignore')
 
-        # 执行
-        result = self.frature_big_tables(dataYLDrun, dataZCLDictrun, self.getZCLLinkColsList(), self.currentWellNameCol,
-                                         self.getIndexCol('顶深索引'), self.getIndexCol('底深索引'),
-                                         self.getIndexCol('深度索引'), modetype=self.methodCombo.currentText(),
-                                         loglists=self.getLogColsList(), Discretes=self.getYLDTextTypeColsList())
+        started = ThreadUtils_w.startAsyncTask(
+            self, self._run_link_task, self._on_run_finished,
+            dataYLDrun=dataYLDrun, dataZCLDictrun=dataZCLDictrun, logcolnames=self.getZCLLinkColsList(),
+            wellname=self.currentWellNameCol, topdepth=self.getIndexCol('顶深索引'), botdepth=self.getIndexCol('底深索引'),
+            depthindex=self.getIndexCol('深度索引'), modetype=self.methodCombo.currentText(),
+            loglists=self.getLogColsList(), Discretes=self.getYLDTextTypeColsList()
+        )
+        if not started:
+            self.warning('当前已有任务在运行，请稍后再试')
 
-        # 保存
+    def _run_link_task(self, *, dataYLDrun, dataZCLDictrun, logcolnames, wellname, topdepth, botdepth, depthindex, modetype, loglists, Discretes, setProgress=None, isCancelled=None):
+        if setProgress:
+            setProgress(5)
+        if isCancelled():
+            return None
+        result = self.frature_big_tables(dataYLDrun, dataZCLDictrun, logcolnames, wellname, topdepth, botdepth, depthindex, modetype=modetype, loglists=loglists, Discretes=Discretes)
+        if setProgress:
+            setProgress(95)
+        return result
+
+    def _on_run_finished(self, f):
+        try:
+            result = f.result()
+        except Exception as e:
+            self.warning(''.join(getattr(e, 'args', [str(e)])))
+            return
+        if result is None or result.empty:
+            self.error('未生成结果数据')
+            return
         self.save(result)
-
-        # 发送
-        self.Outputs.table.send(table_from_frame(result))
+        table = table_from_frame(result)
+        self.Outputs.table.send(table)
         self.Outputs.data.send([result])
-        self.Outputs.raw.send({'maindata': result, 'target': [], 'future': []})
+        raw = {'maindata': result, 'target': [], 'future': []}
+        self.Outputs.raw.send(raw)
+        self.Outputs.payload.send(self.build_output_payload(result, table, raw))
+
+    def build_output_payload(self, result, table, raw):
+        if self.payloadYLD_input is not None or self.payloadZCL_input is not None:
+            payloads = {}
+            if self.payloadYLD_input is not None:
+                payloads['fracture'] = self.payloadYLD_input
+            if self.payloadZCL_input is not None:
+                payloads['logging'] = self.payloadZCL_input
+            out = PayloadManager.merge_payloads(node_name=self.name, input_payloads=payloads, node_type='merge', task='link_logging_fracture', data_kind='linked_table')
+        else:
+            out = PayloadManager.empty_payload(node_name=self.name, node_type='merge', task='link_logging_fracture', data_kind='linked_table')
+        item = PayloadManager.make_item(file_path=self._last_saved_file_path, orange_table=table, dataframe=result, role='main')
+        out = PayloadManager.replace_items(out, [item], data_kind='linked_table')
+        out = PayloadManager.set_result(out, orange_table=table, dataframe=result, extra={'saved_file_path': self._last_saved_file_path})
+        out = PayloadManager.update_context(out, selected_wells=list(self.selectedWellName or []), wellname_col=self.currentWellNameCol)
+        out['legacy'].update({'raw': raw})
+        return out
 
     def read(self):
         """读取数据方法"""

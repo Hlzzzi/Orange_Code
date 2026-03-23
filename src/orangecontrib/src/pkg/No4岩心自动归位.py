@@ -142,14 +142,14 @@ def pearson(list_X, list_Y):
 
 
 def relocation_result_show(
-    wellname,
-    data_int2,
-    name_x,
-    name_y,
-    out_result_path,
-    initial="False",
-    fontsize1=20,
-    flag_save=True,
+        wellname,
+        data_int2,
+        name_x,
+        name_y,
+        out_result_path,
+        initial="False",
+        fontsize1=20,
+        flag_save=True,
 ):
     if not flag_save:
         return
@@ -496,7 +496,7 @@ def relocation_result_show(
 
 
 def relocation_curves(
-    wellname, ms, pearsons, name_x, out_result_path, sample=0.125, flag_save=True
+        wellname, ms, pearsons, name_x, out_result_path, sample=0.125, flag_save=True
 ):
     if not flag_save:
         return
@@ -560,42 +560,42 @@ def log_core_merge(data_log, data_core, k, sample, logdepth="depth", coredepth="
         logs_core = pd.merge(data_log, data_core, on="Depth", how=("outer")).fillna(-1)
     except Exception as e:
         logs_core = pd.merge(data_log, data_core, on="Depth", how=("outer"))
-    
+
     return logs_core, core_logs
 
 
 def relocation(
-    wellname1,
-    log_data,
-    core_data,
-    logcolnames,
-    lognames,
-    corename,
-    mks,
-    out_result_path="",
-    logdepth="depth",
-    coredepth="depth",
-    sample=0.125,
-    loglists=[
-        "ILD",
-        "MLL",
-        "R4",
-        "R25",
-        "RI",
-        "RT",
-        "RXO",
-        "RLLD",
-        "LLD",
-        "LLS",
-        "MSFL",
-        "RLLS",
-        "RLA1",
-        "RLA2",
-        "RLA3",
-        "RLA4",
-        "RLA5",
-    ],
-    flag_save=True,
+        wellname1,
+        log_data,
+        core_data,
+        logcolnames,
+        lognames,
+        corename,
+        mks,
+        out_result_path="",
+        logdepth="depth",
+        coredepth="depth",
+        sample=0.125,
+        loglists=[
+            "ILD",
+            "MLL",
+            "R4",
+            "R25",
+            "RI",
+            "RT",
+            "RXO",
+            "RLLD",
+            "LLD",
+            "LLS",
+            "MSFL",
+            "RLLS",
+            "RLA1",
+            "RLA2",
+            "RLA3",
+            "RLA4",
+            "RLA5",
+        ],
+        flag_save=True,
 ):
     corrs = []
     cors = []
@@ -686,41 +686,41 @@ def relocation(
 
 
 def logging_core_automatic_location(
-    logpath,
-    coredatas,
-    lognames,
-    corewellnames,
-    save_out_path0="岩心归位",
-    welltopspath=False,
-    wellname="wellname",
-    corename="toc",
-    geoname="岩心TOC参数归位",
-    logdepth="depth",
-    coredepth="depth",
-    replace_depth_names=["depth", "DEPTH", "DEPT"],
-    top="TOP",
-    bot="BOTTOM",
-    sample=0.125,
-    length=10,
-    loglists=[
-        "ILD",
-        "MLL",
-        "R4",
-        "R25",
-        "RI",
-        "RT",
-        "RXO",
-        "RLLD",
-        "LLD",
-        "LLS",
-        "MSFL",
-        "RLLS",
-        "RLA1",
-        "RLA2",
-        "RLA3",
-        "RLA4",
-        "RLA5",
-    ],
+        logpath,
+        coredatas,
+        lognames,
+        corewellnames,
+        save_out_path0="岩心归位",
+        welltopspath=False,
+        wellname="wellname",
+        corename="toc",
+        geoname="岩心TOC参数归位",
+        logdepth="depth",
+        coredepth="depth",
+        replace_depth_names=["depth", "DEPTH", "DEPT"],
+        top="TOP",
+        bot="BOTTOM",
+        sample=0.125,
+        length=10,
+        loglists=[
+            "ILD",
+            "MLL",
+            "R4",
+            "R25",
+            "RI",
+            "RT",
+            "RXO",
+            "RLLD",
+            "LLD",
+            "LLS",
+            "MSFL",
+            "RLLS",
+            "RLA1",
+            "RLA2",
+            "RLA3",
+            "RLA4",
+            "RLA5",
+        ],
 ):
     from collections import Counter
     import numpy as np
@@ -796,12 +796,12 @@ def logging_core_automatic_location(
                 well_log_data = log_data.loc[
                     (log_data[logdepth] >= depthtop - length)
                     & (log_data[logdepth] <= depthbot + length)
-                ]
+                    ]
                 corewelldata = gross_array(coredatas, wellname, wellname1)
                 well_core_data = corewelldata.loc[
                     (corewelldata[coredepth] >= depthtop)
                     & (corewelldata[coredepth] <= depthbot)
-                ]
+                    ]
             else:
                 well_log_data = log_data
                 well_core_data = gross_array(coredatas, wellname, wellname1)
@@ -868,21 +868,21 @@ def logging_core_automatic_location(
 
 
 def logging_core_Manual_location(
-    logpath,
-    coredatas,
-    wellname1,
-    distance,
-    save_out_path0="岩心归位",
-    welltopspath=False,
-    wellname="wellname",
-    corename="toc",
-    geoname="岩心TOC参数归位",
-    logdepth="depth",
-    coredepth="depth",
-    replace_depth_names=["depth", "DEPTH", "DEPT"],
-    top="TOP",
-    bot="BOTTOM",
-    sample=0.125,
+        logpath,
+        coredatas,
+        wellname1,
+        distance,
+        save_out_path0="岩心归位",
+        welltopspath=False,
+        wellname="wellname",
+        corename="toc",
+        geoname="岩心TOC参数归位",
+        logdepth="depth",
+        coredepth="depth",
+        replace_depth_names=["depth", "DEPTH", "DEPT"],
+        top="TOP",
+        bot="BOTTOM",
+        sample=0.125,
 ):
     save_out_path = join_path(save_out_path0, geoname)
 
@@ -943,12 +943,12 @@ def logging_core_Manual_location(
             well_log_data = log_data.loc[
                 (log_data[logdepth] >= depthtop - distance)
                 & (log_data[logdepth] <= depthbot + distance)
-            ]
+                ]
             corewelldata = gross_array(coredatas, wellname, wellname1)
             well_core_data = corewelldata.loc[
                 (corewelldata[coredepth] >= depthtop)
                 & (corewelldata[coredepth] <= depthbot)
-            ]
+                ]
         else:
             well_log_data = log_data
             well_core_data = gross_array(coredatas, wellname, wellname1)
@@ -966,25 +966,25 @@ def logging_core_Manual_location(
 
 
 def logging_core_Manual_location_my(
-    # logpath,
-    log_data,
-    coredatas,
-    wellname1,
-    distance,
-    # welltopspath=False,
-    welltopdata,
-    save_out_path0="岩心归位",
-    wellname="wellname",
-    corename="toc",
-    # 二级文件夹名字
-    geoname="岩心TOC参数归位",
-    logdepth="depth",
-    coredepth="depth",
-    replace_depth_names=["depth", "DEPTH", "DEPT"],
-    top="TOP",
-    bot="BOTTOM",
-    sample=0.125,
-    flag_save=True,
+        # logpath,
+        log_data,
+        coredatas,
+        wellname1,
+        distance,
+        # welltopspath=False,
+        welltopdata,
+        save_out_path0="岩心归位",
+        wellname="wellname",
+        corename="toc",
+        # 二级文件夹名字
+        geoname="岩心TOC参数归位",
+        logdepth="depth",
+        coredepth="depth",
+        replace_depth_names=["depth", "DEPTH", "DEPT"],
+        top="TOP",
+        bot="BOTTOM",
+        sample=0.125,
+        flag_save=True,
 ):
     save_out_path = join_path(save_out_path0, geoname)
 
@@ -1052,12 +1052,12 @@ def logging_core_Manual_location_my(
             well_log_data = log_data.loc[
                 (log_data[logdepth] >= depthtop - distance)
                 & (log_data[logdepth] <= depthbot + distance)
-            ]
+                ]
             corewelldata = gross_array(coredatas, wellname, wellname1)
             well_core_data = corewelldata.loc[
                 (corewelldata[coredepth] >= depthtop)
                 & (corewelldata[coredepth] <= depthbot)
-            ]
+                ]
         else:
             well_log_data = log_data
             well_core_data = gross_array(coredatas, wellname, wellname1)
@@ -1076,43 +1076,43 @@ def logging_core_Manual_location_my(
 
 
 def logging_core_automatic_location_my(
-    coredatas,
-    log_data,
-    welltopdata,
-    lognames,
-    corewellnames,
-    wellname,
-    corename,
-    sample=0.125,
-    length=10,
-    logdepth="depth",
-    coredepth="depth",
-    top="TOP",
-    bot="BOTTOM",
-    loglists=[
-        "ILD",
-        "MLL",
-        "R4",
-        "R25",
-        "RI",
-        "RT",
-        "RXO",
-        "RLLD",
-        "LLD",
-        "LLS",
-        "MSFL",
-        "RLLS",
-        "RLA1",
-        "RLA2",
-        "RLA3",
-        "RLA4",
-        "RLA5",
-    ],
-    replace_depth_names=["depth", "DEPTH", "DEPT"],
-    parent=None,
-    geoname="",
-    save_out_path0="",
-    flag_save=True,
+        coredatas,
+        log_data,
+        welltopdata,
+        lognames,
+        corewellnames,
+        wellname,
+        corename,
+        sample=0.125,
+        length=10,
+        logdepth="depth",
+        coredepth="depth",
+        top="TOP",
+        bot="BOTTOM",
+        loglists=[
+            "ILD",
+            "MLL",
+            "R4",
+            "R25",
+            "RI",
+            "RT",
+            "RXO",
+            "RLLD",
+            "LLD",
+            "LLS",
+            "MSFL",
+            "RLLS",
+            "RLA1",
+            "RLA2",
+            "RLA3",
+            "RLA4",
+            "RLA5",
+        ],
+        replace_depth_names=["depth", "DEPTH", "DEPT"],
+        parent=None,
+        geoname="",
+        save_out_path0="",
+        flag_save=True,
 ):
     from collections import Counter
     import numpy as np
@@ -1209,12 +1209,12 @@ def logging_core_automatic_location_my(
                 well_log_data = log_data.loc[
                     (log_data[logdepth] >= depthtop - length)
                     & (log_data[logdepth] <= depthbot + length)
-                ]
+                    ]
                 corewelldata = gross_array(coredatas, wellname, wellname1)
                 well_core_data = corewelldata.loc[
                     (corewelldata[coredepth] >= depthtop)
                     & (corewelldata[coredepth] <= depthbot)
-                ]
+                    ]
             else:
                 well_log_data = log_data
                 well_core_data = gross_array(coredatas, wellname, wellname1)
@@ -1335,25 +1335,25 @@ def run(parent, input_list, para_list):
 
 
 def run_auto(
-    coredatas,
-    log_data,
-    welltopdata,
-    lognames,
-    corewellnames,
-    wellname,
-    corename,
-    sample: str,
-    length: str,
-    logdepth,
-    coredepth,
-    top,
-    bot,
-    parent,
-    loglists=[],
-    replace_depth_names=["depth", "DEPTH", "DEPT"],
-    geoname="岩心自动归位",
-    save_out_path0="岩心归位",
-    savemod=0,
+        coredatas,
+        log_data,
+        welltopdata,
+        lognames,
+        corewellnames,
+        wellname,
+        corename,
+        sample: str,
+        length: str,
+        logdepth,
+        coredepth,
+        top,
+        bot,
+        parent,
+        loglists=[],
+        replace_depth_names=["depth", "DEPTH", "DEPT"],
+        geoname="岩心自动归位",
+        save_out_path0="岩心归位",
+        savemod=0,
 ):
     pd.set_option("mode.chained_assignment", None)
     print("into this")
@@ -1364,14 +1364,14 @@ def run_auto(
         parent.error("缺少输入数据")
         return None
     if (
-        lognames is None
-        or corewellnames is None
-        or wellname is None
-        or corename is None
-        or logdepth is None
-        or coredepth is None
-        or top is None
-        or bot is None
+            lognames is None
+            or corewellnames is None
+            or wellname is None
+            or corename is None
+            or logdepth is None
+            or coredepth is None
+            or top is None
+            or bot is None
     ):
         return None
     else:
@@ -1430,23 +1430,23 @@ def run_auto(
 
 
 def run_manual(
-    log_data,
-    coredata,
-    welltopdata,
-    wellname1_and_distance_and_sample: dir,  # type:{"井名":[distance,sample]}
-    # wellname1,
-    # distance: str,
-    save_out_path0,
-    # sample: str = "0.125",
-    wellname="wellname",
-    geoname="岩心手动归位",
-    logdepth="depth",
-    coredepth="depth",
-    top="TOP",
-    bot="BOTTOM",
-    replace_depth_names=["depth", "DEPTH", "DEPT"],
-    savemod=0,
-    parent=None,
+        log_data,
+        coredata,
+        welltopdata,
+        wellname1_and_distance_and_sample: dir,  # type:{"井名":[distance,sample]}
+        # wellname1,
+        # distance: str,
+        save_out_path0,
+        # sample: str = "0.125",
+        wellname="wellname",
+        geoname="岩心手动归位",
+        logdepth="depth",
+        coredepth="depth",
+        top="TOP",
+        bot="BOTTOM",
+        replace_depth_names=["depth", "DEPTH", "DEPT"],
+        savemod=0,
+        parent=None,
 ):
     pd.set_option("mode.chained_assignment", None)
     print("into this")
@@ -1457,11 +1457,11 @@ def run_manual(
         parent.error("缺少输入数据")
         return None
     if (
-        wellname is None
-        or logdepth is None
-        or coredepth is None
-        or top is None
-        or bot is None
+            wellname is None
+            or logdepth is None
+            or coredepth is None
+            or top is None
+            or bot is None
     ):
         return None
     else:
@@ -1497,8 +1497,8 @@ def run_manual(
 
     ret_list = []
     if (
-        wellname1_and_distance_and_sample is None
-        and wellname1_and_distance_and_sample == {}
+            wellname1_and_distance_and_sample is None
+            and wellname1_and_distance_and_sample == {}
     ):
         parent.error("没有找到井名")
         return None
