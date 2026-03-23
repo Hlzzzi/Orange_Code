@@ -132,19 +132,52 @@ class Widget(OWWidget):
     def set_payload(self, payload):
         if not payload:
             self.input_payload = None
+            # 不主动清模型/参数，避免老接口单独输入模型时被清掉
+            if self.apply_data_payload is None:
+                self.data = None
+                self.dataPH = None
+                self.excel_file_path = None
+            self.read()
             return
-        self.input_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='apply',
-                                                           task='predict', data_kind='table_batch')
+
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type='apply',
+            task='predict',
+            data_kind='table_batch'
+        )
         print('payload 输入成功::::', PayloadManager.summary(self.input_payload))
         self._apply_workflow_payload(self.input_payload)
 
     @Inputs.data_payload
     def set_data_payload(self, payload):
+        # 外部应用数据 payload 断开：恢复 workflow 默认数据
         if not payload:
             self.apply_data_payload = None
+            if self.input_payload is not None:
+                df = self._get_workflow_default_df(self.input_payload)
+                if df is not None:
+                    self._save_single_apply_df(df)
+                else:
+                    self.data = None
+                    self.dataPH = None
+                    self.excel_file_path = None
+            else:
+                self.data = None
+                self.dataPH = None
+                self.excel_file_path = None
+
+            self.read()
             return
-        self.apply_data_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='apply',
-                                                                task='predict', data_kind='table_batch')
+
+        self.apply_data_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type='apply',
+            task='predict',
+            data_kind='table_batch'
+        )
         print('应用数据 payload 输入成功::::', PayloadManager.summary(self.apply_data_payload))
         self._apply_external_data_payload(self.apply_data_payload)
 
@@ -194,6 +227,18 @@ class Widget(OWWidget):
         print('自动保存 payload best 模型到:', temp_model_path)
         return temp_model_path
 
+    def _get_workflow_default_df(self, payload):
+        """
+        workflow payload 默认数据优先级：
+        test -> val -> 第一份表
+        """
+        df = self._payload_to_df(payload, role='test')
+        if df is None:
+            df = self._payload_to_df(payload, role='val')
+        if df is None:
+            df = self._payload_to_df(payload)
+        return df
+
     def _save_single_apply_df(self, df):
         folder_path = './config_Cengduan/分类应用配置文件'
         os.makedirs(folder_path, exist_ok=True)
@@ -242,24 +287,31 @@ class Widget(OWWidget):
                 or payload.get('legacy', {}).get('params')
         )
 
-        # 默认优先 test，没有就 val，再没有就第一份表
-        df = self._payload_to_df(payload, role='test')
-        if df is None:
-            df = self._payload_to_df(payload, role='val')
-        if df is None:
-            df = self._payload_to_df(payload)
-
-        if df is not None and self.apply_data_payload is None:
-            self._save_single_apply_df(df)
+        # 只有没有外部应用数据时，才用 workflow 默认数据
+        if self.apply_data_payload is None:
+            df = self._get_workflow_default_df(payload)
+            if df is not None:
+                self._save_single_apply_df(df)
+            else:
+                self.data = None
+                self.dataPH = None
+                self.excel_file_path = None
 
         self.read()
 
-
-
     def _apply_external_data_payload(self, payload):
+        """
+        外部应用数据 payload 只覆盖数据，不覆盖模型/参数
+        """
         df = self._payload_to_df(payload)
         if df is not None:
             self._save_single_apply_df(df)
+        else:
+            self.data = None
+            self.dataPH = None
+            self.excel_file_path = None
+
+        self.read()
 
     def check_file_or_folder(self, path):
         if os.path.isfile(path):

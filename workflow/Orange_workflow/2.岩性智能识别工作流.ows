@@ -1,26 +1,50 @@
 <?xml version='1.0' encoding='utf-8'?>
 <scheme version="2.0" title="" description="">
 	<nodes>
-		<node id="0" name="测井数据加载" qualified_name="orangecontrib.src.LasDataLoad.lasdata" project_name="Add-on" version="" title="分层数据加载" position="(-291.0, -298.0)" />
-		<node id="1" name="测井多表加载" qualified_name="orangecontrib.interval.测井多表加载.Widget" project_name="Add-on" version="" title="测井多表加载" position="(-292.0, -79.0)" />
-		<node id="2" name="多文件合并" qualified_name="orangecontrib.interval.多文件合并.Widget" project_name="Add-on" version="" title="多文件合并" position="(-293.0, -188.0)" />
-		<node id="3" name="分层数据处理" qualified_name="orangecontrib.src.分层数据处理.Widget" project_name="Add-on" version="" title="分层数据处理" position="(-123.0, -298.0)" />
-		<node id="4" name="多文件层段数据链接" qualified_name="orangecontrib.interval.多文件层段数据链接.cengduan" project_name="Add-on" version="" title="多文件层段数据链接" position="(71.0, -198.0)" />
+		<node id="0" name="测井数据加载payload" qualified_name="orangecontrib.interval.LasDataLoad_payload_adapted.lasdata" project_name="Add-on" version="" title="测井数据加载payload" position="(-232.0, -223.0)" />
+		<node id="1" name="测井数据加载payload" qualified_name="orangecontrib.interval.LasDataLoad_payload_adapted.lasdata" project_name="Add-on" version="" title="测井数据加载payload (1)" position="(-202.0, -61.0)" />
+		<node id="2" name="分层数据处理" qualified_name="orangecontrib.src.分层数据处理.Widget" project_name="Add-on" version="" title="分层数据处理" position="(-76.0, -176.0)" />
+		<node id="3" name="多文件层段数据链接" qualified_name="orangecontrib.interval.多文件层段数据链接.cengduan" project_name="Add-on" version="" title="多文件层段数据链接" position="(78.0, -86.0)" />
+		<node id="4" name="测井数据加载payload" qualified_name="orangecontrib.interval.LasDataLoad_payload_adapted.lasdata" project_name="Add-on" version="" title="测井数据加载payload (2)" position="(70.0, 43.0)" />
+		<node id="5" name="单文件层段数据链接" qualified_name="orangecontrib.interval.单文件层段数据链接.Widget" project_name="Add-on" version="" title="单文件层段数据链接" position="(258.0, -48.0)" />
+		<node id="6" name="数据筛选器" qualified_name="orangecontrib.interval.数据筛选器.Widget" project_name="Add-on" version="" title="数据筛选器" position="(402.0, -138.0)" />
+		<node id="7" name="分类异常值去除器" qualified_name="orangecontrib.interval.分类异常值去除器.Widget" project_name="Add-on" version="" title="分类异常值去除器" position="(563.0, -143.0)" />
+		<node id="8" name="数据集剖分" qualified_name="orangecontrib.interval.数据集剖分.Widget" project_name="Add-on" version="" title="数据集剖分" position="(713.0, -145.0)" />
+		<node id="9" name="分类-机器学习训练" qualified_name="orangecontrib.interval.分类_机器学习训练.Widget" project_name="Add-on" version="" title="分类-机器学习训练" position="(850.0, -149.0)" />
+		<node id="10" name="分类-机器学习评估" qualified_name="orangecontrib.interval.分类-机器学习评估.Widget" project_name="Add-on" version="" title="分类-机器学习评估" position="(329.0, 84.0)" />
+		<node id="11" name="分类-机器学习应用" qualified_name="orangecontrib.interval.分类_机器学习应用.Widget" project_name="Add-on" version="" title="分类-机器学习应用" position="(536.0, 87.0)" />
+		<node id="12" name="顶底深度数据计算" qualified_name="orangecontrib.interval.顶底深度数据计算.Widget" project_name="Add-on" version="" title="顶底深度数据计算" position="(695.0, 88.0)" />
 	</nodes>
 	<links>
-		<link id="0" source_node_id="0" sink_node_id="3" source_channel="Table_list" sink_channel="分层数据" enabled="true" />
-		<link id="1" source_node_id="3" sink_node_id="4" source_channel="分层数据List" sink_channel="目标类数据" enabled="true" />
-		<link id="2" source_node_id="1" sink_node_id="4" source_channel="TableList" sink_channel="钻测录数据" enabled="true" />
-		<link id="3" source_node_id="1" sink_node_id="4" source_channel="文件名" sink_channel="钻测录井名" enabled="true" />
+		<link id="0" source_node_id="0" sink_node_id="2" source_channel="payload" sink_channel="payload" enabled="true" />
+		<link id="1" source_node_id="2" sink_node_id="3" source_channel="payload" sink_channel="目标类数据Payload" enabled="true" />
+		<link id="2" source_node_id="1" sink_node_id="3" source_channel="payload" sink_channel="钻测录数据Payload" enabled="true" />
+		<link id="3" source_node_id="3" sink_node_id="5" source_channel="payload" sink_channel="层段数据Payload" enabled="true" />
+		<link id="4" source_node_id="4" sink_node_id="5" source_channel="payload" sink_channel="单表数据Payload" enabled="true" />
+		<link id="5" source_node_id="5" sink_node_id="6" source_channel="payload" sink_channel="payload" enabled="true" />
+		<link id="6" source_node_id="6" sink_node_id="7" source_channel="payload" sink_channel="payload" enabled="true" />
+		<link id="7" source_node_id="7" sink_node_id="8" source_channel="payload" sink_channel="payload" enabled="true" />
+		<link id="8" source_node_id="8" sink_node_id="9" source_channel="payload" sink_channel="payload" enabled="true" />
+		<link id="9" source_node_id="9" sink_node_id="10" source_channel="payload" sink_channel="payload" enabled="true" />
+		<link id="10" source_node_id="10" sink_node_id="11" source_channel="payload" sink_channel="payload" enabled="true" />
+		<link id="11" source_node_id="11" sink_node_id="12" source_channel="payload" sink_channel="payload" enabled="true" />
 	</links>
 	<annotations />
 	<thumbnail />
 	<node_properties>
-		<properties node_id="0" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x024\x00\x00\x00n\x00\x00\x04u\x00\x00\x03\x0c\x00\x00\x025\x00\x00\x00\x8c\x00\x00\x04t\x00\x00\x03\x0b\x00\x00\x00\x00\x00\x00\x00\x00\x06\xab\x00\x00\x025\x00\x00\x00\x8c\x00\x00\x04t\x00\x00\x03\x0b', '__version__': 1}</properties>
-		<properties node_id="1" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': None, '__version__': 1}</properties>
-		<properties node_id="2" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': None, '__version__': 1}</properties>
-		<properties node_id="3" format="literal">{'auto_send': False, 'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02_\x00\x00\x00\xd2\x00\x00\x05\xe9\x00\x00\x02\xe4\x00\x00\x02`\x00\x00\x00\xf0\x00\x00\x05\xe8\x00\x00\x02\xe3\x00\x00\x00\x00\x00\x00\x00\x00\x06\xab\x00\x00\x02`\x00\x00\x00\xf0\x00\x00\x05\xe8\x00\x00\x02\xe3', '__version__': 1}</properties>
-		<properties node_id="4" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': None, '__version__': 1}</properties>
+		<properties node_id="0" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02\x19\x00\x00\x00`\x00\x00\x04\x93\x00\x00\x03N\x00\x00\x02\x1a\x00\x00\x00~\x00\x00\x04\x92\x00\x00\x03M\x00\x00\x00\x00\x00\x00\x00\x00\x06\xab\x00\x00\x02\x1a\x00\x00\x00~\x00\x00\x04\x92\x00\x00\x03M', '__version__': 1}</properties>
+		<properties node_id="1" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02\x19\x00\x00\x00`\x00\x00\x04\x93\x00\x00\x03N\x00\x00\x02\x1a\x00\x00\x00~\x00\x00\x04\x92\x00\x00\x03M\x00\x00\x00\x00\x00\x00\x00\x00\x06\xab\x00\x00\x02\x1a\x00\x00\x00~\x00\x00\x04\x92\x00\x00\x03M', '__version__': 1}</properties>
+		<properties node_id="2" format="literal">{'auto_send': False, 'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02_\x00\x00\x00\xd2\x00\x00\x05\xe9\x00\x00\x02\xe4\x00\x00\x02`\x00\x00\x00\xf0\x00\x00\x05\xe8\x00\x00\x02\xe3\x00\x00\x00\x00\x00\x00\x00\x00\x06\xab\x00\x00\x02`\x00\x00\x00\xf0\x00\x00\x05\xe8\x00\x00\x02\xe3', '__version__': 1}</properties>
+		<properties node_id="3" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': None, '__version__': 1}</properties>
+		<properties node_id="4" format="literal">{'controlAreaVisible': True, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02\x19\x00\x00\x00`\x00\x00\x04\x93\x00\x00\x03N\x00\x00\x02\x1a\x00\x00\x00~\x00\x00\x04\x92\x00\x00\x03M\x00\x00\x00\x00\x00\x00\x00\x00\x06\xab\x00\x00\x02\x1a\x00\x00\x00~\x00\x00\x04\x92\x00\x00\x03M', '__version__': 1}</properties>
+		<properties node_id="5" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02\xac\x00\x00\x00\xeb\x00\x00\x04\xd3\x00\x00\x02\xfe\x00\x00\x02\xad\x00\x00\x01\n\x00\x00\x04\xd2\x00\x00\x02\xfd\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x02\xad\x00\x00\x01\n\x00\x00\x04\xd2\x00\x00\x02\xfd', '__version__': 1}</properties>
+		<properties node_id="6" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x01\x04\x00\x00\x00\xb9\x00\x00\x05.\x00\x00\x02\x88\x00\x00\x01\x05\x00\x00\x00\xd7\x00\x00\x05-\x00\x00\x02\x87\x00\x00\x00\x00\x00\x00\x00\x00\x06\xab\x00\x00\x01\x05\x00\x00\x00\xd7\x00\x00\x05-\x00\x00\x02\x87', '__version__': 1}</properties>
+		<properties node_id="7" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x00\xb0\x00\x00\x01"\x00\x00\x03\x8a\x00\x00\x035\x00\x00\x00\xb1\x00\x00\x01A\x00\x00\x03\x89\x00\x00\x034\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x00\xb1\x00\x00\x01A\x00\x00\x03\x89\x00\x00\x034', '__version__': 1}</properties>
+		<properties node_id="8" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02&gt;\x00\x00\x00}\x00\x00\x05A\x00\x00\x03l\x00\x00\x02?\x00\x00\x00\x9c\x00\x00\x05@\x00\x00\x03k\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x02?\x00\x00\x00\x9c\x00\x00\x05@\x00\x00\x03k', '__version__': 1}</properties>
+		<properties node_id="9" format="literal">{'controlAreaVisible': True, 'crossVaRadio': 1, 'optimizerRadio': 1, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x00\xe1\x00\x00\x00\x9b\x00\x00\x048\x00\x00\x03\x14\x00\x00\x00\xe2\x00\x00\x00\xba\x00\x00\x047\x00\x00\x03\x13\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x00\xe2\x00\x00\x00\xba\x00\x00\x047\x00\x00\x03\x13', '__version__': 1}</properties>
+		<properties node_id="10" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02A\x00\x00\x00\xfa\x00\x00\x04o\x00\x00\x02C\x00\x00\x02B\x00\x00\x01\x19\x00\x00\x04n\x00\x00\x02B\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x02B\x00\x00\x01\x19\x00\x00\x04n\x00\x00\x02B', '__version__': 1}</properties>
+		<properties node_id="11" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02\xac\x00\x00\x016\x00\x00\x04\xd3\x00\x00\x02\xb3\x00\x00\x02\xad\x00\x00\x01U\x00\x00\x04\xd2\x00\x00\x02\xb2\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x02\xad\x00\x00\x01U\x00\x00\x04\xd2\x00\x00\x02\xb2', '__version__': 1}</properties>
+		<properties node_id="12" format="literal">{'controlAreaVisible': True, 'save_radio': 2, 'savedWidgetGeometry': b'\x01\xd9\xd0\xcb\x00\x03\x00\x00\x00\x00\x02\x1f\x00\x00\x00\xeb\x00\x00\x05`\x00\x00\x02\xfe\x00\x00\x02 \x00\x00\x01\n\x00\x00\x05_\x00\x00\x02\xfd\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x00\x00\x02 \x00\x00\x01\n\x00\x00\x05_\x00\x00\x02\xfd', '__version__': 1}</properties>
 	</node_properties>
 	<session_state>
 		<window_groups />

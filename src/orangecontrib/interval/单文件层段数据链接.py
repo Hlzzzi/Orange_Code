@@ -190,6 +190,13 @@ class Widget(OWWidget):
 
         return None
 
+    def _normalize_well_name(self, name):
+        if name is None:
+            return ""
+        name = str(name).strip()
+        name = os.path.splitext(name)[0]
+        return name.strip()
+
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
 
     # def run(self):
@@ -635,14 +642,16 @@ class Widget(OWWidget):
             table.setCellWidget(i, 2, comboBox)
 
 
-
     def tryFillNameTable(self) -> bool:
         if self.dataYX is None or self.dataDB is None:
             return False
         if self.currentWellNameCol_YLD is None or self.currentWellNameCol_WDZ is None:
             return False
-        self.fillNameTable(self.dataYX[self.currentWellNameCol_YLD].unique().tolist(),
-                           self.dataDB[self.currentWellNameCol_WDZ].unique().tolist())
+
+        YLDnames = self.dataYX[self.currentWellNameCol_YLD].unique().tolist()
+        WDZnames = self.dataDB[self.currentWellNameCol_WDZ].unique().tolist()
+
+        self.fillNameTable(YLDnames, WDZnames)
         return True
 
     def fillNameTable(self, YLDnames: list, WDZnames: list):
@@ -650,21 +659,32 @@ class Widget(OWWidget):
         self.nameTable.setRowCount(0)
         self.header.all_check.clear()
         self.nameTable.setRowCount(len(YLDnames))
+
+        normalized_wdz_names = {self._normalize_well_name(x) for x in WDZnames}
+        self.selectedWellName = []
+
         for i, name in enumerate(YLDnames):
+            norm_name = self._normalize_well_name(name)
+
             cbox = QCheckBox()
-            cbox.stateChanged.connect(lambda state, wellname=name: self.wellSelected(state, wellname))  # 选中状态改变
+            matched = norm_name in normalized_wdz_names
+            if matched:
+                cbox.setChecked(True)
+                self.selectedWellName.append(str(name))
+
+            cbox.stateChanged.connect(lambda state, wellname=name: self.wellSelected(state, wellname))
             self.header.addCheckBox(cbox)
+
             hLayout = QHBoxLayout()
             hLayout.addWidget(cbox)
             hLayout.setAlignment(cbox, Qt.AlignCenter)
             widget = QWidget()
             widget.setLayout(hLayout)
             self.nameTable.setCellWidget(i, 0, widget)
-            self.nameTable.setItem(i, 1, QTableWidgetItem(name))
-            if name in WDZnames:
-                self.nameTable.setItem(i, 2, QTableWidgetItem('true'))
-            else:
-                self.nameTable.setItem(i, 2, QTableWidgetItem('false'))
+
+            self.nameTable.setItem(i, 1, QTableWidgetItem(str(name)))
+            self.nameTable.setItem(i, 2, QTableWidgetItem('true' if matched else 'false'))
+
         self.nameTable.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.clear_messages()
 
@@ -818,27 +838,36 @@ class Widget(OWWidget):
     def bigtable_sectiondata_annotation(self, section_wellname="wellname", section_top='Top',
                                         section_bot='Bottom', section_name='Litho',
                                         bigtable_wellname='wellname', logdepthindex='depth'):
-        # save_out_path = join_path(out_path, savetype)
-        section_data = self.dataYX
-        bigtable_data = self.dataDB
+        section_data = self.dataYX.copy()
+        bigtable_data = self.dataDB.copy()
 
         bigtable_wellnames = self.groupss_names(bigtable_data, bigtable_wellname)
         section_wellnames = self.groupss_names(section_data, section_wellname)
-        # bigtable_data[section_name]=-1
-        for bigtable_wellname1 in bigtable_wellnames:
-            if bigtable_wellname1 in section_wellnames:
-                section_well_data = self.gross_array(section_data, section_wellname, bigtable_wellname1)
 
-                bigtable_well_data = self.gross_array(bigtable_data, bigtable_wellname, bigtable_wellname1)
+        section_name_map = {self._normalize_well_name(x): x for x in section_wellnames}
+
+        for bigtable_wellname1 in bigtable_wellnames:
+            norm_big = self._normalize_well_name(bigtable_wellname1)
+
+            if norm_big in section_name_map:
+                section_real_name = section_name_map[norm_big]
+
+                section_well_data = self.gross_array(section_data, section_wellname, section_real_name)
 
                 for index1, sectionvaule in enumerate(np.array(section_well_data[section_name])):
                     topdepth = np.array(section_well_data[section_top])[index1]
                     botdepth = np.array(section_well_data[section_bot])[index1]
-                    bigtable_data.loc[(bigtable_data[bigtable_wellname] == bigtable_wellname1) & (
-                            bigtable_data[logdepthindex] > topdepth) & (
-                                              bigtable_data[logdepthindex] < botdepth), section_name] = sectionvaule
-        return bigtable_data
 
+                    bigtable_data.loc[
+                        (bigtable_data[bigtable_wellname] == bigtable_wellname1) &
+                        (bigtable_data[logdepthindex] > topdepth) &
+                        (bigtable_data[logdepthindex] < botdepth),
+                        section_name
+                    ] = sectionvaule
+            else:
+                print(f'未匹配到单表井名: {bigtable_wellname1} -> {norm_big}')
+
+        return bigtable_data
 
 if __name__ == "__main__":
     from Orange.widgets.utils.widgetpreview import WidgetPreview  # since Orange 3.20.0

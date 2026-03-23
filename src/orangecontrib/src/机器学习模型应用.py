@@ -52,33 +52,41 @@ class Widget(OWWidget):
     def set_payload(self, payload):
         if not payload:
             self.input_payload = None
+            if self.data_payload is None:
+                self.data = None
+            self.read()
             return
-        self.input_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='apply', task='predict', data_kind='table_batch')
+
+        self.input_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type='apply',
+            task='predict',
+            data_kind='table_batch'
+        )
         print('payload 输入成功::::', PayloadManager.summary(self.input_payload))
-        models = self.input_payload.get('models', {}) or {}
-        self.models = models.get('selected') or models.get('all') or models.get('best') or {}
-        if self.data_payload is None:
-            df = PayloadManager.get_single_dataframe(self.input_payload, role='test') or PayloadManager.get_single_dataframe(self.input_payload)
-            if df is None:
-                table = PayloadManager.get_single_table(self.input_payload, role='test') or PayloadManager.get_single_table(self.input_payload)
-                if table is not None:
-                    df = Utils_w.tableToDataFrame(table)
-            self.data = df
-        self.read()
+        self._apply_workflow_payload(self.input_payload)
 
     @Inputs.data_payload
     def set_data_payload(self, payload):
+        # 外部应用数据 payload 断开：恢复 workflow 默认数据
         if not payload:
             self.data_payload = None
+            if self.input_payload is not None:
+                self.data = self._get_workflow_default_df(self.input_payload)
+            else:
+                self.data = None
+            self.read()
             return
-        self.data_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='apply', task='predict', data_kind='table_batch')
-        df = PayloadManager.get_single_dataframe(self.data_payload)
-        if df is None:
-            table = PayloadManager.get_single_table(self.data_payload)
-            if table is not None:
-                df = Utils_w.tableToDataFrame(table)
-        self.data = df
-        self.read()
+
+        self.data_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type='apply',
+            task='predict',
+            data_kind='table_batch'
+        )
+        self._apply_external_data_payload(self.data_payload)
 
     class Outputs:  # TODO
         # if there are two or more outputs, default=True marks the default output
@@ -110,6 +118,56 @@ class Widget(OWWidget):
     depth_index = "depth"
 
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
+    def _get_workflow_default_df(self, payload):
+        """
+        workflow payload 默认数据优先级：
+        test -> val -> 第一份表
+        """
+        df = self._payload_to_df(payload, role='test')
+        if df is None:
+            df = self._payload_to_df(payload, role='val')
+        if df is None:
+            df = self._payload_to_df(payload)
+        return df
+
+    def _extract_models_from_payload(self, payload):
+        """
+        从 workflow payload 中提取模型字典。
+        优先级：selected -> all/all_models -> best(如果本身就是 dict)
+        """
+        models = payload.get('models', {}) or {}
+
+        selected = models.get('selected')
+        if isinstance(selected, dict) and len(selected) > 0:
+            return selected
+
+        all_models = models.get('all') or models.get('all_models')
+        if isinstance(all_models, dict) and len(all_models) > 0:
+            return all_models
+
+        best = models.get('best')
+        if isinstance(best, dict) and len(best) > 0:
+            return best
+
+        return {}
+
+    def _apply_workflow_payload(self, payload):
+        # workflow payload 负责模型
+        self.models = self._extract_models_from_payload(payload)
+
+        # 只有没有外部应用数据时，才用 workflow 默认数据
+        if self.data_payload is None:
+            self.data = self._get_workflow_default_df(payload)
+
+        self.read()
+
+    def _apply_external_data_payload(self, payload):
+        """
+        外部应用数据 payload 只覆盖数据，不覆盖模型
+        """
+        df = self._payload_to_df(payload)
+        self.data = df
+        self.read()
 
 
     def _build_output_payload(self, output):

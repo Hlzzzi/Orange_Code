@@ -231,28 +231,44 @@ class Widget(OWWidget):
         self.hh = None
 
         self.ddf = pd.DataFrame()
-        self.header_combo_box.clear()
-        self.leftBottomTable.setRowCount(0)
         self.label_content_mapping.clear()
         self.nn = []
+        self.namedata = pd.DataFrame(columns=['内容', 'Count'])
+        self.selected_column_data = None
+        self.clumN = None
 
-        self.fillPropTable(self.data, '属性', self.leftTopTable, self.dataYLD_type_list, self.dataYLD_funcType_list)
+        self.leftBottomTable.setRowCount(0)
+
+        # 关键：清空/重建下拉框时先阻断信号，避免 currentTextChanged('') 触发 KeyError
+        self.header_combo_box.blockSignals(True)
+        self.header_combo_box.clear()
+
+        self.fillPropTable(
+            self.data,
+            '属性',
+            self.leftTopTable,
+            self.dataYLD_type_list,
+            self.dataYLD_funcType_list
+        )
 
         if not self.ddf.empty:
-            self.header_combo_box.addItems(self.ddf.columns.tolist())
-            if self.header_combo_box.count() > 0:
-                self.update_column_data(self.header_combo_box.currentText())
-        else:
-            self.namedata = pd.DataFrame(columns=['内容', 'Count'])
+            cols = [str(c) for c in self.ddf.columns.tolist() if str(c).strip() != ""]
+            self.header_combo_box.addItems(cols)
+
+        self.header_combo_box.blockSignals(False)
+
+        # 只在确实有列时手动触发一次
+        if self.header_combo_box.count() > 0:
+            self.update_column_data(self.header_combo_box.currentText())
 
         self.currentWellNameCol_YLD = None
         YLDCols: list = self.data.columns.tolist()
         for col in YLDCols:
-            if col.lower() in self.wellname_col_alias:
+            if str(col).lower() in self.wellname_col_alias:
                 self.currentWellNameCol_YLD = col
                 break
+
         self.currentWellNameCol_WDZ = None
-        self.tryFillNameTable()
 
     #################### 读取GUI上的配置 ####################
     lognames = []
@@ -369,6 +385,18 @@ class Widget(OWWidget):
     selected_column_data = None
 
     def update_column_data(self, column_name):
+        # 防御性判断：避免空字符串 / None / 列不存在时直接炸
+        if self.ddf is None or self.ddf.empty:
+            return
+
+        column_name = str(column_name).strip() if column_name is not None else ""
+        if column_name == "":
+            return
+
+        if column_name not in self.ddf.columns:
+            print(f"列不存在，跳过 update_column_data: {column_name}")
+            return
+
         # 获取选中的列的数据
         self.selected_column_data = self.ddf[column_name]
         self.clumN = column_name
@@ -411,7 +439,7 @@ class Widget(OWWidget):
 
             self.leftBottomTable.setCellWidget(i, 0, checkbox)
 
-        self.selectAllCheckbox.clicked.connect(lambda state: self.selectAllRows())
+        # self.selectAllCheckbox.clicked.connect(lambda state: self.selectAllRows())
 
     def fillnametableTTO(self):
 

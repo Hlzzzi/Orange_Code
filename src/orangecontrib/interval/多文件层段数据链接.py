@@ -31,6 +31,7 @@ class cengduan(OWWidget):
     want_main_area = False
     resizing_enabled = True
 
+
     class Inputs:  # TODO:输入
         # 油层组数据：通过【测井数据加载】控件【单文件选择】功能载入
         dataYCZ = Input("目标类数据", list, auto_summary=False)
@@ -312,6 +313,19 @@ class cengduan(OWWidget):
         if not started:
             self.warning("当前已有任务在运行，请稍后再试")
 
+    def _normalize_well_name(self, name):
+        """
+        统一井名匹配规则：
+        - 转字符串
+        - 去前后空格
+        - 去文件扩展名（适配 payload 文件名）
+        """
+        if name is None:
+            return ""
+        name = str(name).strip()
+        name = os.path.splitext(name)[0]
+        return name.strip()
+
     def _run_link_task(
         self,
         *,
@@ -467,16 +481,16 @@ class cengduan(OWWidget):
 
         return output_payload
 
-
-
     def read(self):
         """读取数据方法"""
         if self.dataYCZ is None or self.dataZCL is None or self.dataZCL_names is None:
             return
 
         self.dataZCLDict = {}
-        for i in range(len(self.dataZCL)):
-            self.dataZCLDict[self.dataZCL_names[i]] = self.dataZCL[i]
+        for i in range(min(len(self.dataZCL), len(self.dataZCL_names))):
+            raw_name = self.dataZCL_names[i]
+            norm_name = self._normalize_well_name(raw_name)
+            self.dataZCLDict[norm_name] = self.dataZCL[i]
 
         self.selectedWellName = []
         self.propertyDict = {}
@@ -490,9 +504,10 @@ class cengduan(OWWidget):
         self.currentWellNameCol = None
         YLDCols: list = self.dataYCZ.columns.tolist()
         for col in YLDCols:
-            if col.lower() in self.wellname_col_alias:
+            if str(col).lower() in self.wellname_col_alias:
                 self.currentWellNameCol = col
                 break
+
         if self.currentWellNameCol is None:
             self.warning('请设置油层组数据井名索引')
             return
@@ -690,22 +705,25 @@ class cengduan(OWWidget):
             comboBox.currentTextChanged.connect(lambda text, prop=prop: self.ignore_function(text, prop))
             self.YLDTable.setCellWidget(i, 2, comboBox)
 
-
-
     def fillNameTable(self, names: list):
         """填充井名表格"""
         self.nameTable.clearContents()
+        self.header.all_check.clear()
         self.nameTable.setRowCount(len(names))
 
-        true_rows = []  # 存储符合条件的行索引
+        normalized_zcl_names = set(self.dataZCLDict.keys())
+        self.selectedWellName = []
 
         for i, name in enumerate(names):
-            cbox = QCheckBox()
-            if name in self.dataZCL_names:
-                cbox.setChecked(True)  # 将复选框默认选择为 True
-                true_rows.append(i)  # 将符合条件的行索引添加到列表中
+            norm_name = self._normalize_well_name(name)
 
-            cbox.stateChanged.connect(lambda state, wellname=name: self.wellSelected(state, wellname))  # 选中状态改变
+            cbox = QCheckBox()
+            matched = norm_name in normalized_zcl_names
+            if matched:
+                cbox.setChecked(True)
+                self.selectedWellName.append(str(name))
+
+            cbox.stateChanged.connect(lambda state, wellname=name: self.wellSelected(state, wellname))
             self.header.addCheckBox(cbox)
 
             hLayout = QHBoxLayout()
@@ -714,14 +732,16 @@ class cengduan(OWWidget):
             widget = QWidget()
             widget.setLayout(hLayout)
             self.nameTable.setCellWidget(i, 0, widget)
-            self.nameTable.setItem(i, 1, QTableWidgetItem(name))
-            if name in self.dataZCL_names:
-                self.nameTable.setItem(i, 2, QTableWidgetItem('true'))
+
+            self.nameTable.setItem(i, 1, QTableWidgetItem(str(name)))
+            self.nameTable.setItem(i, 2, QTableWidgetItem('true' if matched else 'false'))
+
+            if matched:
                 previewButton = QPushButton('查看')
-                previewButton.clicked.connect(lambda state, wellname=name: self.showTable(self.dataZCLDict[wellname]))
+                previewButton.clicked.connect(
+                    lambda state, wellname=norm_name: self.showTable(self.dataZCLDict[wellname])
+                )
                 self.nameTable.setCellWidget(i, 3, previewButton)
-            else:
-                self.nameTable.setItem(i, 2, QTableWidgetItem('false'))
 
         self.nameTable.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
 
@@ -900,6 +920,7 @@ class cengduan(OWWidget):
 
         for x in range(min(len(self.dataZCL), len(self.dataZCL_names))):
             dfsj = self.dataZCL[x].copy()
+            norm_name = self._normalize_well_name(self.dataZCL_names[x])
 
             # 兼容旧 LAS/表格情况：如果列名不是标准 9 列，但列数刚好是 9，则补成旧标准列名
             if len(dfsj.columns) == 9:
@@ -908,10 +929,9 @@ class cengduan(OWWidget):
                 if current_cols != expected_cols:
                     dfsj.columns = expected_cols
 
-            DFZCL[self.dataZCL_names[x]] = dfsj
+            DFZCL[norm_name] = dfsj
 
         return DFZCL
-
 
     def create_path(self, path):
         if not os.path.exists(path):
@@ -993,70 +1013,42 @@ class cengduan(OWWidget):
         # kess列表内数据为左侧表格井名
         return self.kess
 
-    def lithology_annotation(self, DFYCZ , DFZCL ,YZC_wellname='wellname', litho_top='Top',
-                             litho_bot='Bottom',
-                             litho_name='层号',  logdepthindex='depth'):
+    def lithology_annotation(self, DFYCZ, DFZCL, YZC_wellname='wellname', litho_top='Top',
+                             litho_bot='Bottom', litho_name='层号', logdepthindex='depth'):
 
-        # 读取油层组信息数据  进去的要是dataframe数据
         YCZ_data = DFYCZ
-        # print(YCZ_data)
-        # 获取不同的井名列表
         wellnames = self.groupss_names(YCZ_data, YZC_wellname)
-        # print('QQQQQ这是wellnames:',wellnames)
 
         self.result = None
         self.n = 0
-        # 遍历不同的井名
-        ZCLdata = None
+
         for wellname1 in wellnames:
-            # 获取特定井名的岩性信息数据
             lithology_well_data = self.gross_array(YCZ_data, YZC_wellname, wellname1)
-            # 这里的目标数据是读取文件夹内的所有文件
-            # print('LLLLL这是Well Name1:',wellname1)
+            norm_wellname = self._normalize_well_name(wellname1)
 
-
-            # 如果测井数据文件存在
-            # for i in range(len(self.dataZCL_names)):
-            # 读取测井数据  dataframe数据
-        # try:
-            if wellname1 in DFZCL and DFZCL[wellname1] is not None:
-                ZCLdata = DFZCL[wellname1]
-                print('这是前一个钻测录数据',ZCLdata)
+            ZCLdata = None
+            if norm_wellname in DFZCL and DFZCL[norm_wellname] is not None:
+                ZCLdata = DFZCL[norm_wellname].copy()
                 ZCLdata[YZC_wellname] = wellname1
-                print('这是钻测录数据', ZCLdata)
             else:
+                print(f'未匹配到钻测录井名: {wellname1} -> {norm_wellname}')
 
-                print(2)
-
-            # except Exception as err:
-        #     print(f'列名{wellname1}不存在')
-        #     print(err)
-
-            # 遍历岩性信息数据
             for index1, lithovaule in enumerate(np.array(lithology_well_data[litho_name])):
                 topdepth = np.array(lithology_well_data[litho_top])[index1]
                 botdepth = np.array(lithology_well_data[litho_bot])[index1]
 
                 if ZCLdata is not None:
-                # 在测井数据中标记岩性信息
-                    ZCLdata.loc[(ZCLdata[logdepthindex] > topdepth) & (
-                                ZCLdata[logdepthindex] < botdepth), litho_name] = lithovaule
-                else:
-                    print(1)
+                    ZCLdata.loc[
+                        (ZCLdata[logdepthindex] > topdepth) & (ZCLdata[logdepthindex] < botdepth),
+                        litho_name
+                    ] = lithovaule
 
-            # 如果测井数据长度大于1
             if ZCLdata is not None and len(ZCLdata) > 1:
-                # 继续处理 ZCLdata 的其他部分
-
                 self.n += 1
                 if self.n == 1:
                     self.result = ZCLdata
                 else:
-                    if len(ZCLdata) > 1:
-                        datasetww = pd.concat([self.result, ZCLdata])
-                        self.result = datasetww
-            else:
-                print(9)
+                    self.result = pd.concat([self.result, ZCLdata], ignore_index=True)
 
         return self.result
 
