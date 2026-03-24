@@ -35,11 +35,11 @@ class Widget(OWWidget):
 
     class Inputs:  # TODO:输入
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
-        data = Input("数据", list, auto_summary=False)
-        table = Input("数据", Table, auto_summary=False)
+        # data = Input("数据", list, auto_summary=False)
+        # table = Input("数据", Table, auto_summary=False)
 
         # 新增 payload 输入
-        payload = Input("payload", dict, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -58,7 +58,7 @@ class Widget(OWWidget):
     file_name = None
     lognames = []
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if not data:
             self.data = None
@@ -79,7 +79,7 @@ class Widget(OWWidget):
 
         self._apply_input_dataframe(df)
 
-    @Inputs.table
+    # @Inputs.table
     def set_table(self, table):
         if table is None:
             self.data = None
@@ -144,14 +144,14 @@ class Widget(OWWidget):
     # wellnames99, self.firstdepths, self.stopdepths = self.getdepthlist(self.user_inputpath, depth_index=self.depth_index)
 
     class Outputs:  # TODO:输出
-        tablePX = Output("排序大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
-        dataPX = Output("排序数据List", list, auto_summary=False)  # 输出给控件
+        # tablePX = Output("排序大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
+        # dataPX = Output("排序数据List", list, auto_summary=False)  # 输出给控件
 
-        tableSX = Output("筛选大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
-        dataSX = Output("筛选数据List", list, auto_summary=False)  # 输出给控件
+        # tableSX = Output("筛选大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
+        # dataSX = Output("筛选数据List", list, auto_summary=False)  # 输出给控件
 
         # 新增 payload 输出
-        payload = Output("payload", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -299,12 +299,12 @@ class Widget(OWWidget):
         self.save(resultPX)
         self.save(resultSX)
 
-        self.Outputs.tablePX.send(table_from_frame(resultPX))
-        self.Outputs.dataPX.send([resultPX])
+        # self.Outputs.tablePX.send(table_from_frame(resultPX))
+        # self.Outputs.dataPX.send([resultPX])
 
         resultSX = resultSX.loc[:, ~resultSX.columns.duplicated()]
-        self.Outputs.tableSX.send(table_from_frame(resultSX))
-        self.Outputs.dataSX.send([resultSX])
+        # self.Outputs.tableSX.send(table_from_frame(resultSX))
+        # self.Outputs.dataSX.send([resultSX])
 
         # 新增 payload 输出
         try:

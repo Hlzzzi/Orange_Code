@@ -53,25 +53,27 @@ class Widget(OWWidget):
     modeltype = None
     ABC = None
     input_payload = None
+    apply_data_payload = None
 
     class Inputs:  # TODO:输入
-        data = Input("模型输入", dict, auto_summary=False)  # 输入数据
-        modelPH = Input("模型路径", str, auto_summary=False)  # 输入数据
-        canshu = Input("参数", dict, auto_summary=False)  # 输入数据
-        data_main = Input("数据", list, auto_summary=False)  # 输入数据
-        payload = Input("payload", dict, auto_summary=False)
+        # data = Input("模型输入", dict, auto_summary=False)  # 输入数据
+        # modelPH = Input("模型路径", str, auto_summary=False)  # 输入数据
+        # canshu = Input("参数", dict, auto_summary=False)  # 输入数据
+        # data_main = Input("数据", list, auto_summary=False)  # 输入数据
+        payload = Input("模型(model)", dict, auto_summary=False)
+        data_payload = Input("数据(data)", dict, auto_summary=False)
 
     modelPH = None
     dataPH = None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data is not None:
             self.dataMD: dict = data
             print('data:', data)
             self.read()
 
-    @Inputs.modelPH
+    # @Inputs.modelPH
     def set_modelPH(self, modelPH):
         if modelPH is not None:
             self.modelPH = modelPH
@@ -82,7 +84,7 @@ class Widget(OWWidget):
 
     excel_file_path = None
 
-    @Inputs.data_main
+    # @Inputs.data_main
     def set_dataaaa(self, data):
         if data:
 
@@ -107,7 +109,7 @@ class Widget(OWWidget):
 
     canshu = None
 
-    @Inputs.canshu
+    # @Inputs.canshu
     def set_canshu(self, canshu):
         if canshu is not None:
             self.canshu = canshu
@@ -120,18 +122,45 @@ class Widget(OWWidget):
     def set_payload(self, payload):
         if not payload:
             self.input_payload = None
-            self.data = None
             self.dataMD = None
             self.modelPH = None
             self.best_model = None
             self.all_models = {}
             self.selected_models = {}
             self.canshu = None
-            self.excel_file_path = None
+            if self.apply_data_payload is None:
+                self.data = None
+                self.excel_file_path = None
             self.read()
             return
 
-        self._apply_payload_input(payload)
+        self._apply_workflow_payload(payload)
+
+    @Inputs.data_payload
+    def set_data_payload(self, payload):
+        if not payload:
+            self.apply_data_payload = None
+            if self.input_payload is not None:
+                df = self._get_workflow_default_df(self.input_payload)
+                self.data = df
+                if df is not None:
+                    self._save_eval_input_df(df)
+                else:
+                    self.excel_file_path = None
+            else:
+                self.data = None
+                self.excel_file_path = None
+            self.read()
+            return
+
+        self.apply_data_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type="eval",
+            task="evaluate",
+            data_kind="table_batch",
+        )
+        self._apply_external_data_payload(self.apply_data_payload)
 
     def _payload_to_df(self, payload, role=None):
         """
@@ -195,6 +224,14 @@ class Widget(OWWidget):
         self.excel_file_path = os.path.join(input_dir, '分类评估配置文件.xlsx')
         print('保存配置文件到:', self.excel_file_path)
         df.to_excel(self.excel_file_path, index=False)
+
+    def _get_workflow_default_df(self, payload):
+        df = self._payload_to_df(payload, role='test')
+        if df is None:
+            df = self._payload_to_df(payload, role='val')
+        if df is None:
+            df = self._payload_to_df(payload)
+        return df
 
     def _materialize_best_model_path(self, model_obj):
         """
@@ -288,7 +325,7 @@ class Widget(OWWidget):
 
         return None
 
-    def _apply_payload_input(self, payload):
+    def _apply_workflow_payload(self, payload):
         self.input_payload = PayloadManager.ensure_payload(
             payload,
             node_name=self.name,
@@ -297,21 +334,7 @@ class Widget(OWWidget):
             data_kind="table_batch",
         )
 
-        # 1. 默认优先 test，没有就 val，再没有就第一份表
-        df = self._payload_to_df(self.input_payload, role='test')
-        if df is None:
-            df = self._payload_to_df(self.input_payload, role='val')
-        if df is None:
-            df = self._payload_to_df(self.input_payload)
-
-        self.data = df
-
-        if self.data is not None:
-            self._save_eval_input_df(self.data)
-        else:
-            self.excel_file_path = None
-
-        # 2. 默认优先 best 模型
+        # 1. workflow payload 提供模型/参数，数据只在没有外部覆盖时回退使用
         models = self.input_payload.get("models", {})
         self.best_model = models.get("best")
         self.all_models = models.get("all_models") or models.get("all") or {}
@@ -356,6 +379,14 @@ class Widget(OWWidget):
                 or self.canshu
         )
 
+        if self.apply_data_payload is None:
+            df = self._get_workflow_default_df(self.input_payload)
+            self.data = df
+            if df is not None:
+                self._save_eval_input_df(df)
+            else:
+                self.excel_file_path = None
+
         self.read()
 
         print("评估 payload 摘要:", PayloadManager.summary(self.input_payload))
@@ -363,6 +394,15 @@ class Widget(OWWidget):
         print("评估默认模型:", "best" if self.best_model is not None else "None")
         print("评估模型路径:", self.modelPH)
         print("评估参数:", self.canshu)
+
+    def _apply_external_data_payload(self, payload):
+        df = self._payload_to_df(payload)
+        self.data = df
+        if df is not None:
+            self._save_eval_input_df(df)
+        else:
+            self.excel_file_path = None
+        self.read()
 
     def check_file_or_folder(self, path):
         if os.path.isfile(path):
@@ -388,18 +428,18 @@ class Widget(OWWidget):
 
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
-        best_model = Output("best_model", dict, auto_summary=False)  # 输出模型
-        all_model = Output("all_model", dict, auto_summary=False)  # 输出模型
+        # best_model = Output("best_model", dict, auto_summary=False)  # 输出模型
+        # all_model = Output("all_model", dict, auto_summary=False)  # 输出模型
 
-        best_model_Path = Output("best_model_Path", str, auto_summary=False)  # 输出模型
-        all_model_Path = Output("all_model_Path", str, auto_summary=False)  # 输出模型
+        # best_model_Path = Output("best_model_Path", str, auto_summary=False)  # 输出模型
+        # all_model_Path = Output("all_model_Path", str, auto_summary=False)  # 输出模型
 
-        score = Output("评分表", Table, auto_summary=False)  # 输出评分
+        # score = Output("评分表", Table, auto_summary=False)  # 输出评分
 
-        PRtable = Output("预测表", Table, auto_summary=False)  # 输出预测
+        # PRtable = Output("预测表", Table, auto_summary=False)  # 输出预测
 
-        canshu = Output("参数", dict, auto_summary=False)  # 输出数据
-        payload = Output("payload", dict, auto_summary=False)
+        # canshu = Output("参数", dict, auto_summary=False)  # 输出数据
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     save_radio = Setting(2)
 
@@ -525,15 +565,28 @@ class Widget(OWWidget):
         }
 
     def _build_output_payload(self, *, score_df, pred_df, score_type):
-        if self.input_payload is not None:
+        if self.input_payload is not None and self.apply_data_payload is not None:
+            payload = PayloadManager.merge_payloads(
+                node_name=self.name,
+                input_payloads={'workflow': self.input_payload, 'eval_data': self.apply_data_payload},
+                node_type='eval',
+                task='evaluate',
+                data_kind='model_bundle'
+            )
+        elif self.input_payload is not None:
             payload = PayloadManager.clone_payload(self.input_payload)
+            payload['node_name'] = self.name
+            payload['node_type'] = 'eval'
+            payload['task'] = 'evaluate'
+        elif self.apply_data_payload is not None:
+            payload = PayloadManager.clone_payload(self.apply_data_payload)
             payload['node_name'] = self.name
             payload['node_type'] = 'eval'
             payload['task'] = 'evaluate'
         else:
             payload = PayloadManager.empty_payload(node_name=self.name, node_type='eval', task='evaluate', data_kind='model_bundle')
         payload = PayloadManager.set_result(payload, scores=score_df, predictions=pred_df, extra={'score_type': score_type})
-        payload = PayloadManager.update_context(payload, evaluation_metric=score_type, workflow_stage='evaluate')
+        payload = PayloadManager.update_context(payload, evaluation_metric=score_type, workflow_stage='evaluate', eval_data_override=self.apply_data_payload is not None)
         payload['legacy'].update({'score_df': score_df, 'pred_df': pred_df, 'canshu': self.canshu})
         return payload
 
@@ -545,13 +598,13 @@ class Widget(OWWidget):
             return
         score_df = task_result['score_df']
         pred_df = task_result['pred_df']
-        self.Outputs.best_model.send(self.dataMD)
-        self.Outputs.all_model.send(self.dataMD)
-        self.Outputs.best_model_Path.send(task_result['model_path'])
-        self.Outputs.all_model_Path.send(task_result['model_path'])
-        self.Outputs.score.send(table_from_frame(score_df))
-        self.Outputs.PRtable.send(table_from_frame(pred_df))
-        self.Outputs.canshu.send(self.canshu)
+        # self.Outputs.best_model.send(self.dataMD)
+        # self.Outputs.all_model.send(self.dataMD)
+        # self.Outputs.best_model_Path.send(task_result['model_path'])
+        # self.Outputs.all_model_Path.send(task_result['model_path'])
+        # self.Outputs.score.send(table_from_frame(score_df))
+        # self.Outputs.PRtable.send(table_from_frame(pred_df))
+        # self.Outputs.canshu.send(self.canshu)
         self.Outputs.payload.send(self._build_output_payload(score_df=score_df, pred_df=pred_df, score_type=task_result['score_type']))
 
     def run(self):

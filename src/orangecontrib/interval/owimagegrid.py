@@ -68,13 +68,15 @@ class OWImageGrid(widget.OWWidget):
     category = '图像分析'
 
     class Inputs:
-        data = Input("Embeddings", Orange.data.Table, default=True)
-        data_subset = Input("Data Subset", Orange.data.Table)
+        pass
+        # data = Input("Embeddings", Orange.data.Table, default=True)
+        # data_subset = Input("Data Subset", Orange.data.Table)
 
     class Outputs:
-        selected_data = Output(
-            "Selected Images", Orange.data.Table, default=True)
-        data = Output("Images", Orange.data.Table)
+        pass
+        # selected_data = Output(
+            # "Selected Images", Orange.data.Table, default=True)
+        # data = Output("Images", Orange.data.Table)
 
     settingsHandler = settings.DomainContextHandler()
 
@@ -195,7 +197,7 @@ class OWImageGrid(widget.OWWidget):
         return QSize(600, 600)
 
     # checks the input data for the right meta-attributes and finds images
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         self.closeContext()
         self.clear()
@@ -228,7 +230,7 @@ class OWImageGrid(widget.OWWidget):
                 self.Warning.no_valid_data()
         self.commit.now()
 
-    @Inputs.data_subset
+    # @Inputs.data_subset
     def set_data_subset(self, data_subset):
         self.data_subset = data_subset
 
@@ -456,13 +458,13 @@ class OWImageGrid(widget.OWWidget):
             if self.selection is None:
                 self.selection = np.zeros(len(self.items), dtype=np.uint8)
             # add Group column (group number)
-            self.Outputs.selected_data.send(
-                create_groups_table(
-                    self.image_grid.image_list, self.selection, False, "Group"
-                )
-                if np.any(self.selection > 0)
-                else None
-            )
+            # self.Outputs.selected_data.send(
+            #     create_groups_table(
+            #         self.image_grid.image_list, self.selection, False, "Group"
+            #     )
+            #     if np.any(self.selection > 0)
+            #     else None
+            # )
 
             # filter out empty cells - keep indices of cells that contain images
             # add Selected column
@@ -475,10 +477,11 @@ class OWImageGrid(widget.OWWidget):
                 out_data = create_annotated_table(
                     self.image_grid.image_list[self.nonempty],
                     np.nonzero(self.selection[self.nonempty]))
-            self.Outputs.data.send(out_data)
+            # self.Outputs.data.send(out_data)
         else:
-            self.Outputs.data.send(None)
-            self.Outputs.selected_data.send(None)
+            # self.Outputs.data.send(None)
+            # self.Outputs.selected_data.send(None)
+            pass
 
     def update_selection(self):
         if self.selection is not None:

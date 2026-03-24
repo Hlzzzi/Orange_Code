@@ -175,3 +175,8 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
+src/orangecontrib/interval/测试.py
+src/orangecontrib/interval/pkg/段簇自动优化/多井汇总/多井压裂簇智能优化设计成果表.xlsx
+src/orangecontrib/interval/pkg/段簇自动优化/多井汇总/多井压裂段智能优化设计成果表.xlsx
+workflow/Orange_workflow/测试.ows
+AGENTS.md

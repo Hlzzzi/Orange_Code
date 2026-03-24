@@ -104,7 +104,8 @@ class OWImportImages(widget.OWWidget):
     category = '图像分析'
 
     class Outputs:
-        data = Output('Data', Table, default=True)
+        pass
+        # data = Output('Data', Table, default=True)
 
     #: list of recent paths
     recent_paths = settings.Setting([])  
@@ -581,7 +582,7 @@ class OWImportImages(widget.OWWidget):
         """
         Commit a Table from the collected image meta data.
         """
-        self.Outputs.data.send(self.data)
+        # self.Outputs.data.send(self.data)
 
     def onDeleteWidget(self):
         self.cancel()

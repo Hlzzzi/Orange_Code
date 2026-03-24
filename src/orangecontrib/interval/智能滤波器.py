@@ -34,9 +34,9 @@ class Widget(OWWidget):
     resizing_enabled = True
 
     class Inputs:  # TODO:输入
-            data = Input("数据", list, auto_summary=False)
-            file_name = Input("文件名", list, auto_summary=False)
-            payload = Input("payload", dict, auto_summary=False)
+            # data = Input("数据", list, auto_summary=False)
+            # file_name = Input("文件名", list, auto_summary=False)
+            payload = Input("数据(data)", dict, auto_summary=False)
     user_input = None
     user_input = None
     data: pd.DataFrame = None
@@ -99,7 +99,7 @@ class Widget(OWWidget):
                 dfs.append(obj.copy())
         return dfs
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             print("数据输入成功::::", data)
@@ -113,7 +113,7 @@ class Widget(OWWidget):
             self.data = None
             self.ALLdata = []
 
-    @Inputs.file_name
+    # @Inputs.file_name
     def set_file_name(self, file_name):
         if file_name:
             self.file_name = list(file_name)
@@ -175,7 +175,7 @@ class Widget(OWWidget):
 
         # wellnames99, self.firstdepths, self.stopdepths = self.getdepthlist(self.user_inputpath, depth_index=self.depth_index)
 
-    @Inputs.file_name
+    # @Inputs.file_name
     def set_file_name(self, file_name):
         if file_name:
             self.file_name = file_name
@@ -188,11 +188,11 @@ class Widget(OWWidget):
             print('请先输入文件路径')
 
     class Outputs:  # TODO:输出
-            table = Output("汇总大表", Table, auto_summary=False)
-            data = Output("汇总数据", list, auto_summary=False)
-            file_name = Output("文件名", list, auto_summary=False)
-            file_path = Output("文件路径", str, auto_summary=False)
-            payload = Output("payload", dict, auto_summary=False)
+            # table = Output("汇总大表", Table, auto_summary=False)
+            # data = Output("汇总数据", list, auto_summary=False)
+            # file_name = Output("文件名", list, auto_summary=False)
+            # file_path = Output("文件路径", str, auto_summary=False)
+            payload = Output("数据(data)", dict, auto_summary=False)
     @gui.deferred
     def commit(self):
         self.run()
@@ -424,10 +424,10 @@ class Widget(OWWidget):
         result_df.to_excel(excel_file_path, index=False)
 
         result_table = table_from_frame(result_df)
-        self.Outputs.table.send(result_table)
-        self.Outputs.data.send([result_df])
-        self.Outputs.file_path.send(folder_path)
-        self.Outputs.file_name.send(['智能滤波器配置文件.xlsx'])
+        # self.Outputs.table.send(result_table)
+        # self.Outputs.data.send([result_df])
+        # self.Outputs.file_path.send(folder_path)
+        # self.Outputs.file_name.send(['智能滤波器配置文件.xlsx'])
 
         output_payload = self.build_output_payload(
             result_list=result_list,

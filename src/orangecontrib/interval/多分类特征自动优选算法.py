@@ -38,10 +38,10 @@ class Widget(OWWidget):
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
         # data = Input("数据", list, auto_summary=False)
         # datapath = Input("数据路径", str, auto_summary=False)
-        datalist = Input("DataFrame数据", list, auto_summary=False)
+        # datalist = Input("DataFrame数据", list, auto_summary=False)
 
         # 新增标准 payload 输入
-        payload = Input("payload", dict, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -95,7 +95,7 @@ class Widget(OWWidget):
 
         return None
 
-    @Inputs.datalist
+    # @Inputs.datalist
     def set_data(self, data):
         if data:
             self.ALLdata = data
@@ -151,11 +151,11 @@ class Widget(OWWidget):
     # wellnames99, self.firstdepths, self.stopdepths = self.getdepthlist(self.user_inputpath, depth_index=self.depth_index)
 
     class Outputs:  # TODO:输出
-        table = Output("大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
-        data = Output("数据List", list, auto_summary=False)  # 输出给控件
+        # table = Output("大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
+        # data = Output("数据List", list, auto_summary=False)  # 输出给控件
 
         # 新增标准 payload 输出
-        payload = Output("payload", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
     @gui.deferred
     def commit(self):
         self.run()
@@ -398,8 +398,8 @@ class Widget(OWWidget):
         filename, file_path = self._save_result_with_suffix(result, "优选结果")
         result_table = table_from_frame(result)
 
-        self.Outputs.data.send([result])
-        self.Outputs.table.send(result_table)
+        # self.Outputs.data.send([result])
+        # self.Outputs.table.send(result_table)
 
         output_payload = self.build_output_payload(
             result_df=result,

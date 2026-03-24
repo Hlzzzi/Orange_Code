@@ -79,11 +79,13 @@ class OWImageEmbedding(OWWidget, ConcurrentWidgetMixin):
     _auto_apply = Setting(default=True)
 
     class Inputs:
-        images = Input("Images", Table)
+        pass
+        # images = Input("Images", Table)
 
     class Outputs:
-        embeddings = Output("Embeddings", Table, default=True)
-        skipped_images = Output("Skipped Images", Table)
+        pass
+        # embeddings = Output("Embeddings", Table, default=True)
+        # skipped_images = Output("Skipped Images", Table)
 
     class Warning(OWWidget.Warning):
         switched_local_embedder = Msg(
@@ -189,7 +191,7 @@ class OWImageEmbedding(OWWidget, ConcurrentWidgetMixin):
                 f"{skip} images skipped.",
             )
 
-    @Inputs.images
+    # @Inputs.images
     def set_data(self, data):
         self.Warning.clear()
         self.set_input_data_summary(data)
@@ -298,8 +300,8 @@ class OWImageEmbedding(OWWidget, ConcurrentWidgetMixin):
 
     def _send_output_signals(self, result: Result) -> None:
         self.Warning.images_skipped.clear()
-        self.Outputs.embeddings.send(result.embedding)
-        self.Outputs.skipped_images.send(result.skip_images)
+        # self.Outputs.embeddings.send(result.embedding)
+        # self.Outputs.skipped_images.send(result.skip_images)
         if result.num_skipped != 0:
             self.Warning.images_skipped(result.num_skipped)
         self.set_output_data_summary(result.embedding, result.skip_images)

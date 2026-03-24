@@ -21,13 +21,13 @@ class OWDataSamplerA(widget.OWWidget):
     priority = 10
 
     class Inputs:
-        in_data_dict = Input("Data list(dict)", dict, auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
+        # in_data_dict = Input("Data list(dict)", dict, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     class Outputs:
-        out_data_dict = Output("Data list(dict)", dict, auto_summary=False)
-        out_data_table = Output("Data list(table)", Orange.data.Table)
-        payload = Output("payload", dict, auto_summary=False)
+        # out_data_dict = Output("Data list(dict)", dict, auto_summary=False)
+        # out_data_table = Output("Data list(table)", Orange.data.Table)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     # Inputs.data 中的data是变量名字，如：上面输入的data
     # 处理输入的数据
@@ -54,7 +54,7 @@ class OWDataSamplerA(widget.OWWidget):
                 'filename': (PayloadManager.get_file_names(self.input_payload)[:1] or [''])[0]}
         self.set_data(fake)
 
-    @Inputs.in_data_dict
+    # @Inputs.in_data_dict
     def set_data(self, input_data):
         if input_data is None:
             return
@@ -125,9 +125,9 @@ class OWDataSamplerA(widget.OWWidget):
         send_data["maindata"] = need_to_send_file_data
         send_data["attribute"] = temp
         # print(send_data)
-        self.Outputs.out_data_dict.send(send_data)
+        # self.Outputs.out_data_dict.send(send_data)
         out_table = table_from_frame(need_to_send_file_data)
-        self.Outputs.out_data_table.send(out_table)
+        # self.Outputs.out_data_table.send(out_table)
         self.Outputs.payload.send(self.build_output_payload(send_data, need_to_send_file_data, out_table))
 
     def __init__(self):

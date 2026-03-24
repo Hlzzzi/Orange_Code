@@ -193,7 +193,7 @@ class lasdata(widget.OWWidget):
 
     # 统一输出 payload
     class Outputs:
-        payload = Output("payload", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     def _reset_runtime_state(self):
         """

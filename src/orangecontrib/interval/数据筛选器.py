@@ -31,10 +31,10 @@ class Widget(OWWidget):
 
     class Inputs:  # TODO:输入
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
-        data = Input("数据", list, auto_summary=False)
+        # data = Input("数据", list, auto_summary=False)
         # data_orange = Input("Data", Orange.data.Table , auto_summary=False)
-        dataTable = Input("数据表格", Table, auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
+        # dataTable = Input("数据表格", Table, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -50,7 +50,7 @@ class Widget(OWWidget):
     namedata = None
     input_payload = None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
 
@@ -64,7 +64,7 @@ class Widget(OWWidget):
         else:
             self.data = None
 
-    @Inputs.dataTable
+    # @Inputs.dataTable
     def set_dataTable(self, data):
         self.data = table_to_frame(data)
         self.input_payload = None
@@ -114,10 +114,10 @@ class Widget(OWWidget):
 
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
-        table = Output("数据(Data)", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
-        data = Output("数据List", list, auto_summary=False)  # 输出给控件
-        raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
-        payload = Output("payload", dict, auto_summary=False)
+        # table = Output("数据(Data)", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
+        # data = Output("数据List", list, auto_summary=False)  # 输出给控件
+        # raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -210,9 +210,9 @@ class Widget(OWWidget):
         filename = self.save(result)
         table = table_from_frame(result)
 
-        self.Outputs.table.send(table)
-        self.Outputs.data.send([result])
-        self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
+        # self.Outputs.table.send(table)
+        # self.Outputs.data.send([result])
+        # self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
         self.Outputs.payload.send(self.build_output_payload(result, table, filename))
 
     def build_output_payload(self, result_df, result_table, filename):

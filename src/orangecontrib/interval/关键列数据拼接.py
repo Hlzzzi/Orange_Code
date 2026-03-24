@@ -47,14 +47,14 @@ class Widget(OWWidget):
     namedata = None
 
     class Inputs:
-        dataPH1 = Input("表一文件(list)", list, auto_summary=False)
-        dataPH2 = Input("表二文件(list)", list, auto_summary=False)
+        # dataPH1 = Input("表一文件(list)", list, auto_summary=False)
+        # dataPH2 = Input("表二文件(list)", list, auto_summary=False)
 
-        dataTable1 = Input("表格一数据", Table, auto_summary=False)
-        dataTable2 = Input("表格二数据", Table, auto_summary=False)
+        # dataTable1 = Input("表格一数据", Table, auto_summary=False)
+        # dataTable2 = Input("表格二数据", Table, auto_summary=False)
 
-        payload1 = Input("表一payload", dict, auto_summary=False)
-        payload2 = Input("表二payload", dict, auto_summary=False)
+        payload1 = Input("表一数据(data)", dict, auto_summary=False)
+        payload2 = Input("表二数据(data)", dict, auto_summary=False)
 
     def _extract_df_from_input(self, data):
         if not data:
@@ -137,7 +137,7 @@ class Widget(OWWidget):
             print("payload2 输入成功::::", PayloadManager.summary(self.input_payload2))
             self._apply_payload_to_side(self.input_payload2, 'right')
 
-    @Inputs.dataPH1
+    # @Inputs.dataPH1
     def set_dataPH1(self, data):
         if data:
             print("数据输入成功::::", data)
@@ -165,7 +165,7 @@ class Widget(OWWidget):
             self.DATA1 = self.data_read(self.input_path1)
             self.fillComboBox_1()
 
-    @Inputs.dataPH2
+    # @Inputs.dataPH2
     def set_dataPH2(self, data):
         if data:
             print("数据输入成功::::", data)
@@ -173,7 +173,7 @@ class Widget(OWWidget):
             if df is not None:
                 self._apply_dataframe_to_side(df, 'right')
 
-    @Inputs.dataTable1
+    # @Inputs.dataTable1
     def set_dataTable1(self, data):
         if data:
             self.data = table_to_frame(data)
@@ -191,7 +191,7 @@ class Widget(OWWidget):
             self.DATA1 = self.data_read(self.input_path1)
             self.fillComboBox_1()
 
-    @Inputs.dataTable2
+    # @Inputs.dataTable2
     def set_dataTable2(self, data):
         if data:
             self.data = table_to_frame(data)
@@ -211,10 +211,10 @@ class Widget(OWWidget):
 
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
-        table = Output("数据表格", Table, auto_summary=False)  # 纯数据Table输出，用于与Orange其他部件交互
-        data = Output("数据List", list, auto_summary=False)  # 输出给控件
-        Path = Output("数据路径", str, auto_summary=False)  # 输出给控件
-        payload = Output("payload", dict, auto_summary=False)
+        # table = Output("数据表格", Table, auto_summary=False)  # 纯数据Table输出，用于与Orange其他部件交互
+        # data = Output("数据List", list, auto_summary=False)  # 输出给控件
+        # Path = Output("数据路径", str, auto_summary=False)  # 输出给控件
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -365,9 +365,9 @@ class Widget(OWWidget):
         result_df = output['result_df']
         excel_file_path = output['excel_file_path']
         out_table = table_from_frame(result_df)
-        self.Outputs.table.send(out_table)
-        self.Outputs.data.send([result_df])
-        self.Outputs.Path.send(excel_file_path)
+        # self.Outputs.table.send(out_table)
+        # self.Outputs.data.send([result_df])
+        # self.Outputs.Path.send(excel_file_path)
         self.Outputs.payload.send(self.build_output_payload(result_df, excel_file_path))
 
     def read(self):

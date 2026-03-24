@@ -118,7 +118,8 @@ class OWSaveImages(OWWidget, ConcurrentWidgetMixin):
     userhome = os.path.expanduser(f"~{os.sep}")
 
     class Inputs:
-        data = Input("Data", Table)
+        pass
+        # data = Input("Data", Table)
 
     class Error(widget.OWWidget.Error):
         no_file_name = widget.Msg("Directory name is not set.")
@@ -307,7 +308,7 @@ class OWSaveImages(OWWidget, ConcurrentWidgetMixin):
         self.reset_queue()
         self.save_file()
 
-    @Inputs.data
+    # @Inputs.data
     def dataset(self, data):
         """
         When new data receives update statuses and error messages. If aut_save

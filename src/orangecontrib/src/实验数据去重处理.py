@@ -32,16 +32,16 @@ class Widget(OWWidget):
 
     class Inputs:
         # 实验数据：通过【测井数据加载】控件载入（该控件传出数据类型为包含一个Table元素的list）
-        dataA = Input("实验数据", list, "set_dataA", auto_summary=False)
+        # dataA = Input("实验数据", list, "set_dataA", auto_summary=False)
         # 页岩油分层处理数据：通过【测井数据加载】控件载入
-        dataB = Input("分层处理数据", list, "set_dataB", auto_summary=False)
-        payloadA = Input("实验数据payload", dict, auto_summary=False)
-        payloadB = Input("分层处理数据payload", dict, auto_summary=False)
+        # dataB = Input("分层处理数据", list, "set_dataB", auto_summary=False)
+        payloadA = Input("实验数据(data)", dict, auto_summary=False)
+        payloadB = Input("分层处理数据(data)", dict, auto_summary=False)
 
     dataA: Table = None
     dataB: Table = None
 
-    @Inputs.dataA
+    # @Inputs.dataA
     def set_dataA(self, data):
         """处理实验数据输入"""
         if data:
@@ -50,7 +50,7 @@ class Widget(OWWidget):
             # if self.dataB and self.auto_send: self.run()
             self.autoCommitCallback()
 
-    @Inputs.dataB
+    # @Inputs.dataB
     def set_dataB(self, data):
         """处理分层处理数据输入"""
         if data:
@@ -89,9 +89,9 @@ class Widget(OWWidget):
 
     class Outputs:
         # if there are two or more outputs, default=True marks the default output
-        Yanxindata = Output("数据去重", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
-        datawithmeta = Output("岩心数据", dict, auto_summary=False)  # 带有作用类型信息的输出，用于连接岩心自动归位部件
-        payload = Output("payload", dict, auto_summary=False)
+        # Yanxindata = Output("数据去重", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
+        # datawithmeta = Output("岩心数据", dict, auto_summary=False)  # 带有作用类型信息的输出，用于连接岩心自动归位部件
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -369,10 +369,10 @@ class Widget(OWWidget):
 
     def _slot_send(self, attr_type: dict):
         data0 = table_from_frame(self.data5)
-        self.Outputs.Yanxindata.send(data0)
+        # self.Outputs.Yanxindata.send(data0)
         datawithmeta = {self.dict_output_data_key: self.data5}
         datawithmeta.update(attr_type)
-        self.Outputs.datawithmeta.send(datawithmeta)
+        # self.Outputs.datawithmeta.send(datawithmeta)
 
     def build_output_payload(self, result: pandas.DataFrame, attr_type: dict):
         if self.payloadA_input is not None or self.payloadB_input is not None:

@@ -168,14 +168,14 @@ class OWDataSamplerA(widget.OWWidget):
     priority = 10
 
     class Inputs:
-        data_core = Input("岩心数据", dict, auto_summary=False)
-        data_log = Input("测井数据", dict, auto_summary=False)
-        data_welltop = Input("分层数据", dict, auto_summary=False)
-        payload_core = Input("岩心数据Payload", dict, auto_summary=False)
-        payload_log = Input("测井数据Payload", dict, auto_summary=False)
-        payload_welltop = Input("分层数据Payload", dict, auto_summary=False)
+        # data_core = Input("岩心数据", dict, auto_summary=False)
+        # data_log = Input("测井数据", dict, auto_summary=False)
+        # data_welltop = Input("分层数据", dict, auto_summary=False)
+        payload_core = Input("岩心数据(data)", dict, auto_summary=False)
+        payload_log = Input("测井数据(data)", dict, auto_summary=False)
+        payload_welltop = Input("分层数据(data)", dict, auto_summary=False)
 
-    @Inputs.data_core
+    # @Inputs.data_core
     def set_core_data(self, input_data):
         self.input_core = input_data
         # print(input_data)
@@ -187,7 +187,7 @@ class OWDataSamplerA(widget.OWWidget):
         ):
             self.set_data_all()
 
-    @Inputs.data_log
+    # @Inputs.data_log
     def set_log_data(self, input_data):
         self.input_log = input_data
         # print(input_data)
@@ -199,7 +199,7 @@ class OWDataSamplerA(widget.OWWidget):
         ):
             self.set_data_all()
 
-    @Inputs.data_welltop
+    # @Inputs.data_welltop
     def set_welltop_data(self, input_data):
         self.input_welltop = input_data
         # print(input_data)
@@ -320,9 +320,9 @@ class OWDataSamplerA(widget.OWWidget):
         return base
 
     class Outputs:
-        data_list = Output("Data list", dict, auto_summary=False)
-        data_table = Output("Data", Orange.data.Table, default=True)
-        payload = Output("payload", dict, auto_summary=False)
+        # data_list = Output("Data list", dict, auto_summary=False)
+        # data_table = Output("Data", Orange.data.Table, default=True)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     # 是否开启主区域
     want_main_area = False
@@ -462,10 +462,10 @@ class OWDataSamplerA(widget.OWWidget):
         self.output_data["filename"] = "岩心数据大表"
 
         if self.auto_send and self.output_data is not None:
-            self.Outputs.data_list.send(self.output_data)
-            self.Outputs.data_table.send(
-                table_from_frame(self.output_data.get("maindata"))
-            )
+            # self.Outputs.data_list.send(self.output_data)
+            # self.Outputs.data_table.send(
+            #     table_from_frame(self.output_data.get("maindata"))
+            # )
             self.Outputs.payload.send(self.build_output_payload())
 
     def cancel(self):

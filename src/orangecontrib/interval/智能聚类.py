@@ -54,9 +54,9 @@ class Widget(OWWidget):
     ABC = None
 
     class Inputs:  # TODO:输入
-        data = Input("数据输入", list, auto_summary=False)
-        datatable = Input("表格", Table, auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
+        # data = Input("数据输入", list, auto_summary=False)
+        # datatable = Input("表格", Table, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     modelPH = None
     dataPH = None
@@ -88,7 +88,7 @@ class Widget(OWWidget):
             return obj.copy()
         return None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             print("数据输入成功::::", data)
@@ -102,7 +102,7 @@ class Widget(OWWidget):
         else:
             self.data = None
 
-    @Inputs.datatable
+    # @Inputs.datatable
     def set_datatable(self, data):
         self.data_orange = data
         if data:
@@ -156,10 +156,10 @@ class Widget(OWWidget):
             print(f"{path} 不是有效的文件或文件夹路径。")
 
     class Outputs:  # TODO:输出
-        data = Output("数据", list, auto_summary=False)
-        dataPH = Output("数据路径", str, auto_summary=False)
-        table = Output("表格", Table, auto_summary=False)
-        payload = Output("payload", dict, auto_summary=False)
+        # data = Output("数据", list, auto_summary=False)
+        # dataPH = Output("数据路径", str, auto_summary=False)
+        # table = Output("表格", Table, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     save_radio = Setting(2)
 
@@ -290,9 +290,9 @@ class Widget(OWWidget):
         filename = self.save(result)
         result.to_excel(excel_file_path, index=False)
         result_table = table_from_frame(result)
-        self.Outputs.table.send(result_table)
-        self.Outputs.data.send([result])
-        self.Outputs.dataPH.send(excel_file_path)
+        # self.Outputs.table.send(result_table)
+        # self.Outputs.data.send([result])
+        # self.Outputs.dataPH.send(excel_file_path)
         output_payload = self.build_output_payload(result_df=result, result_table=result_table,
                                                    saved_filename=filename, saved_file_path=excel_file_path)
         self.Outputs.payload.send(output_payload)

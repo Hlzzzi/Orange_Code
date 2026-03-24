@@ -38,10 +38,10 @@ class Widget(OWWidget):
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
         # data = Input("数据", list, auto_summary=False)
         # datapath = Input("数据路径", str, auto_summary=False)
-        datalist = Input("DataFrame数据", list, auto_summary=False)
+        # datalist = Input("DataFrame数据", list, auto_summary=False)
 
         # 新增标准 payload 输入
-        payload = Input("payload", dict, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
         
 
 
@@ -102,7 +102,7 @@ class Widget(OWWidget):
 
         return None
 
-    @Inputs.datalist
+    # @Inputs.datalist
     def set_data(self, data):
         if data:
             self.ALLdata = data
@@ -155,14 +155,14 @@ class Widget(OWWidget):
     # wellnames99, self.firstdepths, self.stopdepths = self.getdepthlist(self.user_inputpath, depth_index=self.depth_index)
 
     class Outputs:  # TODO:输出
-        tablePX = Output("排序大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
-        dataPX = Output("排序数据List", list, auto_summary=False)  # 输出给控件
+        # tablePX = Output("排序大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
+        # dataPX = Output("排序数据List", list, auto_summary=False)  # 输出给控件
 
-        tableSX = Output("筛选大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
-        dataSX = Output("筛选数据List", list, auto_summary=False)  # 输出给控件
+        # tableSX = Output("筛选大表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
+        # dataSX = Output("筛选数据List", list, auto_summary=False)  # 输出给控件
 
         # 新增标准 payload 输出
-        payload = Output("payload", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -454,11 +454,11 @@ class Widget(OWWidget):
         rank_filename, rank_file_path = self._save_result_with_suffix(resultPX, "排序大表")
         selected_filename, selected_file_path = self._save_result_with_suffix(resultSX, "筛选大表")
 
-        self.Outputs.tablePX.send(tablePX)
-        self.Outputs.dataPX.send([resultPX])
+        # self.Outputs.tablePX.send(tablePX)
+        # self.Outputs.dataPX.send([resultPX])
 
-        self.Outputs.tableSX.send(tableSX)
-        self.Outputs.dataSX.send([resultSX])
+        # self.Outputs.tableSX.send(tableSX)
+        # self.Outputs.dataSX.send([resultSX])
 
         output_payload = self.build_output_payload(
             rank_df=resultPX,

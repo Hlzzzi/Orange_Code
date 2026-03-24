@@ -32,13 +32,13 @@ class Widget(OWWidget):
 
     class Inputs:  # TODO:输入
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
-        data = Input("数据", list, auto_summary=False)
-        path = Input("数据path", str, auto_summary=False)
+        # data = Input("数据", list, auto_summary=False)
+        # path = Input("数据path", str, auto_summary=False)
         # data_orange = Input("Data", Orange.data.Table, auto_summary=False)
-        dataTable = Input("数据表格", Table, auto_summary=False)
+        # dataTable = Input("数据表格", Table, auto_summary=False)
 
         # 新增 payload 输入
-        payload = Input("payload", dict, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -126,7 +126,7 @@ class Widget(OWWidget):
 
         self._apply_payload_dataframe(df, source_path=source_path)
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         self.Ture_data = data[0]
         if data:
@@ -143,7 +143,7 @@ class Widget(OWWidget):
 
 
     excel_file_path = None
-    @Inputs.path
+    # @Inputs.path
     def set_path(self, path):
         if path:
             self.excel_file_path = pd.read_excel(path)
@@ -152,7 +152,7 @@ class Widget(OWWidget):
             self.excel_file_path = None
 
     # 统一做table大表的 适配
-    @Inputs.dataTable
+    # @Inputs.dataTable
     def set_dataTable(self, dataTable):
         if dataTable:
             self.data = table_to_frame(dataTable)
@@ -188,18 +188,18 @@ class Widget(OWWidget):
 
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
-        GDOH_cluster_data = Output("层次聚类成果数据表格", Table, auto_summary=False, replaces=['Data'])
-        GDOH_cluster_data_list = Output("层次聚类成果数据", list, auto_summary=False)
+        # GDOH_cluster_data = Output("层次聚类成果数据表格", Table, auto_summary=False, replaces=['Data'])
+        # GDOH_cluster_data_list = Output("层次聚类成果数据", list, auto_summary=False)
 
-        GDOH_Overlapping_Matrix_data = Output("重叠度系数矩阵表格", Table, auto_summary=False, replaces=['Data'])
-        GDOH_Overlapping_Matrix_data_list = Output("重叠度系数矩阵列表", list, auto_summary=False)
+        # GDOH_Overlapping_Matrix_data = Output("重叠度系数矩阵表格", Table, auto_summary=False, replaces=['Data'])
+        # GDOH_Overlapping_Matrix_data_list = Output("重叠度系数矩阵列表", list, auto_summary=False)
 
-        GDOH_Sensitivity_Matrix_data = Output("敏感度系数矩阵表格", Table, auto_summary=False, replaces=['Data'])
-        GDOH_Sensitivity_Matrix_data_list = Output("敏感度系数矩阵列表", list, auto_summary=False)
-        raw = Output("数据Dict", dict, auto_summary=False)
+        # GDOH_Sensitivity_Matrix_data = Output("敏感度系数矩阵表格", Table, auto_summary=False, replaces=['Data'])
+        # GDOH_Sensitivity_Matrix_data_list = Output("敏感度系数矩阵列表", list, auto_summary=False)
+        # raw = Output("数据Dict", dict, auto_summary=False)
 
         # 新增 payload 输出
-        payload = Output("payload", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -319,17 +319,17 @@ class Widget(OWWidget):
 
         if Jcorr1 is not None:
             filename2 = self.save(Jcorr1, fname="敏感特征矩阵")
-            self.Outputs.GDOH_Sensitivity_Matrix_data.send(table_from_frame(Jcorr1))
-            self.Outputs.GDOH_Sensitivity_Matrix_data_list.send([Jcorr1])
-            self.Outputs.raw.send({'maindata': Jcorr1, 'target': [], 'future': [], 'filename': filename2})
+            # self.Outputs.GDOH_Sensitivity_Matrix_data.send(table_from_frame(Jcorr1))
+            # self.Outputs.GDOH_Sensitivity_Matrix_data_list.send([Jcorr1])
+            # self.Outputs.raw.send({'maindata': Jcorr1, 'target': [], 'future': [], 'filename': filename2})
 
-        self.Outputs.GDOH_cluster_data.send(table_from_frame(GDOH_cluster_data))
-        self.Outputs.GDOH_cluster_data_list.send([GDOH_cluster_data])
-        self.Outputs.raw.send({'maindata': GDOH_cluster_data, 'target': [], 'future': [], 'filename': filename})
+        # self.Outputs.GDOH_cluster_data.send(table_from_frame(GDOH_cluster_data))
+        # self.Outputs.GDOH_cluster_data_list.send([GDOH_cluster_data])
+        # self.Outputs.raw.send({'maindata': GDOH_cluster_data, 'target': [], 'future': [], 'filename': filename})
 
-        self.Outputs.GDOH_Overlapping_Matrix_data.send(table_from_frame(Jcorr))
-        self.Outputs.GDOH_Overlapping_Matrix_data_list.send([Jcorr])
-        self.Outputs.raw.send({'maindata': Jcorr, 'target': [], 'future': [], 'filename': filename1})
+        # self.Outputs.GDOH_Overlapping_Matrix_data.send(table_from_frame(Jcorr))
+        # self.Outputs.GDOH_Overlapping_Matrix_data_list.send([Jcorr])
+        # self.Outputs.raw.send({'maindata': Jcorr, 'target': [], 'future': [], 'filename': filename1})
 
         # 新增 payload 输出
         try:

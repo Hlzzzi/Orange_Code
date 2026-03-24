@@ -50,17 +50,17 @@ class Widget(OWWidget):
     resizing_enabled = True
 
     class Inputs:
-        data = Input("数据大表", dict, auto_summary=False)
-        data_bak = Input("数据大表list", list, auto_summary=False)  # 适配【测井数据加载】单文件加载
-        CanShu = Input("参数", dict, auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
+        # data = Input("数据大表", dict, auto_summary=False)
+        # data_bak = Input("数据大表list", list, auto_summary=False)  # 适配【测井数据加载】单文件加载
+        # CanShu = Input("参数", dict, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     data: pd.DataFrame = None
     dataDict: dict = None
     dataRoleDict: dict = None
     input_payload = None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             self.dataDict: dict = data
@@ -89,14 +89,14 @@ class Widget(OWWidget):
     #
     dataa = None
 
-    @Inputs.data_bak
+    # @Inputs.data_bak
     def set_data_bak(self, data):
         if data:
             self.dataa = Utils_w.readDataFromList(data)
 
     Canshu = None
 
-    @Inputs.CanShu
+    # @Inputs.CanShu
     def set_CanShu(self, CanShu):
         if CanShu:
             self.Canshu = CanShu
@@ -148,9 +148,9 @@ class Widget(OWWidget):
 
     class Outputs:
             # if there are two or more outputs, default=True marks the default output
-        best_models = Output("Best_Models", dict, default=True, auto_summary=False)
-        all_models = Output("All_Models", dict, auto_summary=False)
-        payload = Output("payload", dict, auto_summary=False)
+        # best_models = Output("Best_Models", dict, default=True, auto_summary=False)
+        # all_models = Output("All_Models", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -300,14 +300,14 @@ class Widget(OWWidget):
         # 发送
         best_models = result["model"]
         best_models = self.renameKey(best_models, self._features)
-        self.Outputs.best_models.send(best_models)
+        # self.Outputs.best_models.send(best_models)
         all_models = {}
         for key in result["MICP"].keys():
             models = result["MICP"][key]["outresult"]["model"]
             for key2 in models.keys():
                 all_models[key + "_" + key2] = models[key2]
         all_models = self.renameKey(all_models, self._features)
-        self.Outputs.all_models.send(all_models)
+        # self.Outputs.all_models.send(all_models)
 
         if self.input_payload is not None:
             payload = PayloadManager.clone_payload(self.input_payload)

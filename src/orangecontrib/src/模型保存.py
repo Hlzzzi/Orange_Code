@@ -24,12 +24,13 @@ class Widget(OWWidget):
     resizing_enabled = True
 
     class Inputs:
+        pass
         # 分层数据：通过【测井数据加载】控件【单文件选择】功能载入
-        data = Input("Models", dict, auto_summary=False)
+        # data = Input("Models", dict, auto_summary=False)
 
     data: dict = None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             self.data = data

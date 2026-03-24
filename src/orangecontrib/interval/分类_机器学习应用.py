@@ -58,24 +58,24 @@ class Widget(OWWidget):
     apply_data_payload = None
 
     class Inputs:  # TODO:输入
-        data = Input("模型输入", dict, auto_summary=False)  # 输入数据
-        modelPH = Input("模型路径", str, auto_summary=False)  # 输入数据
-        data_main = Input("数据", list, auto_summary=False)  # 输入数据
-        canshu = Input("参数", dict, auto_summary=False)  # 输入数据
-        payload = Input("payload", dict, auto_summary=False)
-        data_payload = Input("应用数据payload", dict, auto_summary=False)
+        # data = Input("模型输入", dict, auto_summary=False)  # 输入数据
+        # modelPH = Input("模型路径", str, auto_summary=False)  # 输入数据
+        # data_main = Input("数据", list, auto_summary=False)  # 输入数据
+        # canshu = Input("参数", dict, auto_summary=False)  # 输入数据
+        payload = Input("模型(model)", dict, auto_summary=False)
+        data_payload = Input("数据(data)", dict, auto_summary=False)
 
     modelPH = None
     dataPH = None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data is not None:
             self.dataMD: dict = data
             print('data:', data)
             self.read()
 
-    @Inputs.modelPH
+    # @Inputs.modelPH
     def set_modelPH(self, modelPH):
         if modelPH is not None:
             self.modelPH = modelPH
@@ -86,7 +86,7 @@ class Widget(OWWidget):
 
     excel_file_path = None
 
-    @Inputs.data_main
+    # @Inputs.data_main
     def set_dataaaa(self, data):
         # self.Ture_data = data[0]
         if data:
@@ -120,7 +120,7 @@ class Widget(OWWidget):
 
     canshu = None
 
-    @Inputs.canshu
+    # @Inputs.canshu
     def set_canshu(self, canshu):
         if canshu is not None:
             self.canshu = canshu
@@ -338,11 +338,11 @@ class Widget(OWWidget):
             print(f"{path} 不是有效的文件或文件夹路径。")
 
     class Outputs:  # TODO:输出
-        data = Output("数据", list, auto_summary=False)  # 输出数据
-        dataID = Output("数据名", list, auto_summary=False)  # 输出数据
-        ttable = Output("单数据表格", Table, auto_summary=False)  # 输出数据
-        tableYQ = Output("多数据表格", list, auto_summary=False)  # 输出数据
-        payload = Output("payload", dict, auto_summary=False)
+        # data = Output("数据", list, auto_summary=False)  # 输出数据
+        # dataID = Output("数据名", list, auto_summary=False)  # 输出数据
+        # ttable = Output("单数据表格", Table, auto_summary=False)  # 输出数据
+        # tableYQ = Output("多数据表格", list, auto_summary=False)  # 输出数据
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     save_radio = Setting(2)
 
@@ -488,9 +488,10 @@ class Widget(OWWidget):
             return
         result = task_result['result']
         if task_result['datatype'] == '单数据':
-            self.Outputs.data.send([result])
-            self.Outputs.ttable.send(table_from_frame(result))
-            self.Outputs.tableYQ.send(None)
+            # self.Outputs.data.send([result])
+            # self.Outputs.ttable.send(table_from_frame(result))
+            # self.Outputs.tableYQ.send(None)
+            pass
         else:
             filename = self.get_filenames_without_extension(self.excel_file_path)
             tables = []
@@ -498,11 +499,11 @@ class Widget(OWWidget):
                 table1 = table_from_frame(table)
                 table1.name = filename[i]
                 tables.append(table1)
-            self.Outputs.tableYQ.send(tables)
+            # self.Outputs.tableYQ.send(tables)
             result_df = runmain.add_filename_to_df(result, filename)
-            self.Outputs.data.send([result_df])
-            self.Outputs.ttable.send(None)
-        self.Outputs.dataID.send(['数据大表'])
+            # self.Outputs.data.send([result_df])
+            # self.Outputs.ttable.send(None)
+        # self.Outputs.dataID.send(['数据大表'])
         self.Outputs.payload.send(self._build_output_payload(result))
 
 

@@ -51,7 +51,7 @@ class Widget(OWWidget):
     payload_file_paths = []
 
     class Inputs:
-        payload = Input("payload", dict, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
 
     @Inputs.payload
@@ -112,9 +112,9 @@ class Widget(OWWidget):
 
 
     class Outputs:
-        table = Output("数据(Data)", Table, default=True)
-        data = Output("数据List", list, auto_summary=False)
-        payload = Output("payload", dict, auto_summary=False)
+        # table = Output("数据(Data)", Table, default=True)
+        # data = Output("数据List", list, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -274,8 +274,8 @@ class Widget(OWWidget):
         filename = self.save(result)
         result_table = table_from_frame(result)
 
-        self.Outputs.table.send(result_table)
-        self.Outputs.data.send([result])
+        # self.Outputs.table.send(result_table)
+        # self.Outputs.data.send([result])
 
         output_payload = self.build_output_payload(
             result_df=result,

@@ -33,9 +33,9 @@ class Widget(OWWidget):
 
     class Inputs:  # TODO:输入
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
-        data = Input("数据列表", list, auto_summary=False)
-        table = Input("数据Orange", Table, auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
+        # data = Input("数据列表", list, auto_summary=False)
+        # table = Input("数据Orange", Table, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
         # data_orange = Input("Data", Orange.data.Table, auto_summary=False)
 
     user_input = None
@@ -128,7 +128,7 @@ class Widget(OWWidget):
         if df is not None:
             self.set_data([df])
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         self.Ture_data = data[0] if data else None
         if data:
@@ -141,7 +141,7 @@ class Widget(OWWidget):
 
     ascds = None
 
-    @Inputs.table
+    # @Inputs.table
     def set_data_orange(self, data):
         self.data_orange = data
         if data:
@@ -153,14 +153,14 @@ class Widget(OWWidget):
             self.data = None
 
     class Outputs:  # TODO:输出
-        data_train = Output("训练集", list, auto_summary=False)
-        data_valing = Output("验证集", list, auto_summary=False)
-        data_test = Output("测试集", list, auto_summary=False)
-        Canshu = Output("参数", dict, auto_summary=False)
-        table_train = Output("训练集表格", Table, auto_summary=False)
-        table_valing = Output("验证集表格", Table, auto_summary=False)
-        table_test = Output("测试集表格", Table, auto_summary=False)
-        payload = Output("payload", dict, auto_summary=False)
+        # data_train = Output("训练集", list, auto_summary=False)
+        # data_valing = Output("验证集", list, auto_summary=False)
+        # data_test = Output("测试集", list, auto_summary=False)
+        # Canshu = Output("参数", dict, auto_summary=False)
+        # table_train = Output("训练集表格", Table, auto_summary=False)
+        # table_valing = Output("验证集表格", Table, auto_summary=False)
+        # table_test = Output("测试集表格", Table, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -331,17 +331,19 @@ class Widget(OWWidget):
         except Exception as e:
             self.error(str(e))
             return
-        self.Outputs.data_train.send([data_train])
-        self.Outputs.table_train.send(table_from_frame(data_train))
+        # self.Outputs.data_train.send([data_train])
+        # self.Outputs.table_train.send(table_from_frame(data_train))
         if data_valing is not None:
-            self.Outputs.data_valing.send([data_valing])
-            self.Outputs.table_valing.send(table_from_frame(data_valing))
+            # self.Outputs.data_valing.send([data_valing])
+            # self.Outputs.table_valing.send(table_from_frame(data_valing))
+            pass
         else:
-            self.Outputs.data_valing.send(None)
-            self.Outputs.table_valing.send(None)
-        self.Outputs.data_test.send([data_test])
-        self.Outputs.table_test.send(table_from_frame(data_test))
-        self.Outputs.Canshu.send(dictt)
+            # self.Outputs.data_valing.send(None)
+            # self.Outputs.table_valing.send(None)
+            pass
+        # self.Outputs.data_test.send([data_test])
+        # self.Outputs.table_test.send(table_from_frame(data_test))
+        # self.Outputs.Canshu.send(dictt)
         self.Outputs.payload.send(self.build_output_payload(data_train, data_valing, data_test, dictt))
 
     def run(self):

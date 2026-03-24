@@ -33,14 +33,14 @@ class cengduan(OWWidget):
 
     class Inputs:  # TODO:输入
         # 老接口保留
-        dataTOC = Input("目标类数据", list, auto_summary=False)
-        dataQX = Input("曲线数据", list, auto_summary=False)
-        dataQXPH = Input("曲线路径", str, auto_summary=False)
-        dataQX_names = Input("曲线井名", list, auto_summary=False)
+        # dataTOC = Input("目标类数据", list, auto_summary=False)
+        # dataQX = Input("曲线数据", list, auto_summary=False)
+        # dataQXPH = Input("曲线路径", str, auto_summary=False)
+        # dataQX_names = Input("曲线井名", list, auto_summary=False)
 
         # 新增标准 payload 输入
-        payloadTOC = Input("目标类数据Payload", dict, auto_summary=False)
-        payloadQX = Input("曲线数据Payload", dict, auto_summary=False)
+        payloadTOC = Input("目标类数据(data)", dict, auto_summary=False)
+        payloadQX = Input("曲线数据(data)", dict, auto_summary=False)
 
     dataTOC: list = None
     dataQX: list = None  # list[pd.DataFrame]
@@ -83,7 +83,7 @@ class cengduan(OWWidget):
                 originals.append(obj.copy())
         return result, originals
 
-    @Inputs.dataTOC
+    # @Inputs.dataTOC
     def set_dataYCZ(self, data):
         if data:
             self.dataTOC = self._coerce_first_df(data)
@@ -96,7 +96,7 @@ class cengduan(OWWidget):
         else:
             self.dataTOC = None
 
-    @Inputs.dataQX
+    # @Inputs.dataQX
     def set_dataZCL(self, data):
         if data:
             self.dataQX, self.original_dataZCL = self._coerce_df_list(data)
@@ -105,11 +105,11 @@ class cengduan(OWWidget):
             self.dataQX = None
             self.original_dataZCL = []
 
-    @Inputs.dataQXPH
+    # @Inputs.dataQXPH
     def set_dataZCLPH(self, data):
         self.dataQXPH = data if data else None
 
-    @Inputs.dataQX_names
+    # @Inputs.dataQX_names
     def set_dataZCL_names(self, data):
         if data:
             self.dataQX_names = list(data)
@@ -170,10 +170,10 @@ class cengduan(OWWidget):
             self.dataQXPH = os.path.dirname(first) if os.path.isfile(first) else first
         self.read()
     class Outputs:  # TODO:输出
-        table = Output("数据(Data)", Table, replaces=['Data'])
-        data = Output("数据List", list, auto_summary=False)
-        raw = Output("数据Dict", dict, auto_summary=False)
-        payload = Output("payload", dict, auto_summary=False)
+        # table = Output("数据(Data)", Table, replaces=['Data'])
+        # data = Output("数据List", list, auto_summary=False)
+        # raw = Output("数据Dict", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -299,9 +299,9 @@ class cengduan(OWWidget):
         filename = self.output_file_name
         self.save(result)
         result_table = table_from_frame(result)
-        self.Outputs.table.send(result_table)
-        self.Outputs.data.send([result])
-        self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
+        # self.Outputs.table.send(result_table)
+        # self.Outputs.data.send([result])
+        # self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
         output_payload = self.build_output_payload(result_df=result, result_table=result_table, saved_filename=filename)
         self.Outputs.payload.send(output_payload)
     def read(self):

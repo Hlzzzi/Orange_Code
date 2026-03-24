@@ -55,15 +55,17 @@ class OWPredictions(OWWidget):
     want_control_area = False
 
     class Inputs:
-        data = Input("数据(Data)", Orange.data.Table, replaces=['Data'],multiple = True)
-        predictors = MultiInput("预测器(Predictors)", Model,
-                                filter_none=True, replaces=['Predictors'])
+        pass
+        # data = Input("数据(Data)", Orange.data.Table, replaces=['Data'],multiple = True)
+        # predictors = MultiInput("预测器(Predictors)", Model,
+                                # filter_none=True, replaces=['Predictors'])
 
     class Outputs:
-        predictions = Output(
-            "预测(Predictions)", Orange.data.Table, replaces=['Predictions'])
-        evaluation_results = Output(
-            "评价结果(Evaluation Results)", Results, replaces=['Evaluation Results'])
+        pass
+        # predictions = Output(
+            # "预测(Predictions)", Orange.data.Table, replaces=['Predictions'])
+        # evaluation_results = Output(
+            # "评价结果(Evaluation Results)", Results, replaces=['Evaluation Results'])
 
     class Warning(OWWidget.Warning):
         empty_data = Msg("Empty dataset")
@@ -219,7 +221,7 @@ class OWPredictions(OWWidget):
         return -1
 
 
-    @Inputs.data
+    # @Inputs.data
     @check_sql_input
     def set_data(self, data,id):
         if id in self.inputs_ids:
@@ -334,19 +336,19 @@ class OWPredictions(OWWidget):
     def is_discrete_class(self):
         return bool(self.class_var) and self.class_var.is_discrete
 
-    @Inputs.predictors
+    # @Inputs.predictors
     def set_predictor(self, index, predictor: Model):
         item = self.predictors[index]
         self.predictors[index] = item._replace(
             predictor=predictor, name=predictor.name, results=None
         )
 
-    @Inputs.predictors.insert
+    # @Inputs.predictors.insert
     def insert_predictor(self, index, predictor: Model):
         item = PredictorSlot(predictor, predictor.name, None)
         self.predictors.insert(index, item)
 
-    @Inputs.predictors.remove
+    # @Inputs.predictors.remove
     def remove_predictor(self, index):
         self.predictors.pop(index)
 
@@ -818,7 +820,7 @@ class OWPredictions(OWWidget):
         slots = [p for p in self._non_errored_predictors()
                  if p.results.predicted is not None]
         if not slots or not self.class_var:
-            self.Outputs.evaluation_results.send(None)
+            # self.Outputs.evaluation_results.send(None)
             return
 
         nanmask = numpy.isnan(self.data.get_column_view(self.class_var)[0])
@@ -834,11 +836,11 @@ class OWPredictions(OWWidget):
             results.probabilities = numpy.array(
                 [p.results.probabilities[0][~nanmask] for p in slots])
         results.learner_names = [p.name for p in slots]
-        self.Outputs.evaluation_results.send(results)
+        # self.Outputs.evaluation_results.send(results)
 
     def _commit_predictions(self):
         if not self.data:
-            self.Outputs.predictions.send(None)
+            # self.Outputs.predictions.send(None)
             return
 
         newmetas = []
@@ -885,7 +887,7 @@ class OWPredictions(OWWidget):
                 or predmodel is not None and predmodel.sortColumn() > 0:
             # No selection: output all, but in the shown order
             predictions = predictions[datamodel.mapToSourceRows(...)]
-        self.Outputs.predictions.send(predictions)
+        # self.Outputs.predictions.send(predictions)
 
     def _add_classification_out_columns(self, slot, newmetas, newcolumns):
         pred = slot.predictor

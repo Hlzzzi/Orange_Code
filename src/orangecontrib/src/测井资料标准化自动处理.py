@@ -33,20 +33,20 @@ class Widget(OWWidget):
 
     class Inputs:
         # 测井数据：通过【测井数据加载】控件【文件夹选择】功能载入
-        dataA = Input("测井数据", list, auto_summary=False)
+        # dataA = Input("测井数据", list, auto_summary=False)
         # 井名列表：通过修改后（增加了文件名list输出）的【测井数据加载】控件载入
-        dataA_names = Input("井名列表", list, auto_summary=False)
+        # dataA_names = Input("井名列表", list, auto_summary=False)
         # 分层数据：通过【测井数据加载】控件【单文件选择】功能载入，或通过【分层数据处理】控件载入
-        dataB = Input("分层数据", list, auto_summary=False)
+        # dataB = Input("分层数据", list, auto_summary=False)
         # 标准 payload 输入
-        payloadA = Input("测井数据payload", dict, auto_summary=False)
-        payloadB = Input("分层数据payload", dict, auto_summary=False)
+        payloadA = Input("测井数据(data)", dict, auto_summary=False)
+        payloadB = Input("分层数据(data)", dict, auto_summary=False)
 
     dataA = None
     dataA_names = None
     dataB = None
 
-    @Inputs.dataA
+    # @Inputs.dataA
     def set_dataA(self, dataA):
         if dataA:
             self.dataA: list = []
@@ -58,7 +58,7 @@ class Widget(OWWidget):
         else:
             self.dataA: list = None
 
-    @Inputs.dataA_names
+    # @Inputs.dataA_names
     def set_dataA_names(self, dataA_names):
         if dataA_names:
             self.dataA_names: list = dataA_names
@@ -66,7 +66,7 @@ class Widget(OWWidget):
         else:
             self.dataA_names: list = None
 
-    @Inputs.dataB
+    # @Inputs.dataB
     def set_dataB(self, dataB):
         if dataB:
             data: pandas.DataFrame = table_to_frame(dataB[0])  # 将输入的Table转换为DataFrame
@@ -120,10 +120,10 @@ class Widget(OWWidget):
 
     class Outputs:
         # if there are two or more outputs, default=True marks the default output
-        table_list = Output("测井数据List", list, default=True, auto_summary=False)  # 存放纯Table数据的list
-        name_list = Output("井名List", list, auto_summary=False)  # 存放井名的list
-        data = Output("测井数据Dict", dict, auto_summary=False)  # 带有作用类型信息的输出，用于连接岩心自动归位部件
-        payload = Output("payload", dict, auto_summary=False)
+        # table_list = Output("测井数据List", list, default=True, auto_summary=False)  # 存放纯Table数据的list
+        # name_list = Output("井名List", list, auto_summary=False)  # 存放井名的list
+        # data = Output("测井数据Dict", dict, auto_summary=False)  # 带有作用类型信息的输出，用于连接岩心自动归位部件
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -263,8 +263,8 @@ class Widget(OWWidget):
         for i in range(len(result[0])):
             output.append(table_from_frame(result[0][i]))
             output_names.append(result[1][i])
-        self.Outputs.table_list.send(output)
-        self.Outputs.name_list.send(output_names)
+        # self.Outputs.table_list.send(output)
+        # self.Outputs.name_list.send(output_names)
 
         raw_output: dict = {}
         for i in range(len(result[0])):
@@ -272,7 +272,7 @@ class Widget(OWWidget):
         output2 = {self.dict_output_data_key: raw_output, self.dict_output_depth_key: self._depth_index,
                    self.dict_output_feature_key: self._feature_list, self.dict_output_target_key: self._target_list,
                    self.dict_output_log_key: self._log_list, self.dict_output_keywell_key: self._key_well_list}
-        self.Outputs.data.send(output2)
+        # self.Outputs.data.send(output2)
         output_payload = self.build_output_payload(result, output, output_names, output2)
         self.Outputs.payload.send(output_payload)
 

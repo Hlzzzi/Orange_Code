@@ -36,10 +36,10 @@ class Widget(OWWidget):
     resizing_enabled = True
 
     class Inputs:
-        data = Input("数据大表", list, auto_summary=False)
-        dataTable = Input("数据表格", Table, auto_summary=False)
-        Canshu = Input("参数", dict, auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
+        # data = Input("数据大表", list, auto_summary=False)
+        # dataTable = Input("数据表格", Table, auto_summary=False)
+        # Canshu = Input("参数", dict, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     data: pd.DataFrame = None
     dataDict: dict = None
@@ -58,7 +58,7 @@ class Widget(OWWidget):
     #             self.read()
     #     else:
     #         self.data = None
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             if isinstance(data[0], Table):
@@ -73,13 +73,13 @@ class Widget(OWWidget):
 
     Canshu: dict = None
 
-    @Inputs.dataTable
+    # @Inputs.dataTable
     def set_dataTable(self, dataTable):
         self.data = table_to_frame(dataTable)
         self.read()
 
 
-    @Inputs.Canshu
+    # @Inputs.Canshu
     def set_Canshu(self, Canshu):
         self.Canshu = Canshu
 
@@ -132,13 +132,13 @@ class Widget(OWWidget):
 
     class Outputs:  # TODO
         # if there are two or more outputs, default=True marks the default output
-        best_models = Output("Best_Models", dict, auto_summary=False)
-        all_models = Output("All_Models", dict, auto_summary=False)
-        Best_model_path = Output("Best_Model_Path", str, auto_summary=False)
-        All_model_path = Output("All_Model_Path", str, auto_summary=False)
+        # best_models = Output("Best_Models", dict, auto_summary=False)
+        # all_models = Output("All_Models", dict, auto_summary=False)
+        # Best_model_path = Output("Best_Model_Path", str, auto_summary=False)
+        # All_model_path = Output("All_Model_Path", str, auto_summary=False)
 
-        Canshu = Output("参数", dict, auto_summary=False)
-        payload = Output("payload", dict, auto_summary=False)
+        # Canshu = Output("参数", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -643,11 +643,11 @@ class Widget(OWWidget):
             'classnames': task_result['classnames'],
             'groupname': task_result['groupname'],
         }
-        self.Outputs.best_models.send(best_models)
-        self.Outputs.all_models.send(all_models)
-        self.Outputs.Best_model_path.send(str(absolute_path1))
-        self.Outputs.All_model_path.send(str(absolute_path))
-        self.Outputs.Canshu.send(canshu)
+        # self.Outputs.best_models.send(best_models)
+        # self.Outputs.all_models.send(all_models)
+        # self.Outputs.Best_model_path.send(str(absolute_path1))
+        # self.Outputs.All_model_path.send(str(absolute_path))
+        # self.Outputs.Canshu.send(canshu)
         self.Outputs.payload.send(self._build_output_payload(
             best_models=best_models,
             all_models=all_models,

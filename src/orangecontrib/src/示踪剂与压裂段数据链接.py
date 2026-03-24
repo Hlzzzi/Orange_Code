@@ -33,14 +33,14 @@ class Widget(OWWidget):
 
     class Inputs:  # TODO:输入
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
-        dataYLD = Input("压裂段数据", list, auto_summary=False)
+        # dataYLD = Input("压裂段数据", list, auto_summary=False)
         # 示踪剂数据：通过【生产数据加载】控件载入
-        dataSZJ = Input("示踪剂数据", dict, auto_summary=False)
+        # dataSZJ = Input("示踪剂数据", dict, auto_summary=False)
 
-        pathSZJ = Input("示踪剂数据路径", str, auto_summary=False)
-        pathYLD = Input("压裂段数据路径", str, auto_summary=False)
-        payloadYLD = Input("压裂段payload", dict, auto_summary=False)
-        payloadSZJ = Input("示踪剂payload", dict, auto_summary=False)
+        # pathSZJ = Input("示踪剂数据路径", str, auto_summary=False)
+        # pathYLD = Input("压裂段数据路径", str, auto_summary=False)
+        payloadYLD = Input("压裂段数据(data)", dict, auto_summary=False)
+        payloadSZJ = Input("示踪剂数据(data)", dict, auto_summary=False)
 
     dataYLD: pd.DataFrame = None
     dataSZJ: dict = None
@@ -51,7 +51,7 @@ class Widget(OWWidget):
     currentWellNameCol: str = None  # 井名索引
     propertyDict: dict = None  # 属性字典
 
-    @Inputs.dataYLD
+    # @Inputs.dataYLD
     def set_dataYLD(self, data):
         if data:
             if isinstance(data[0], Table):
@@ -64,7 +64,7 @@ class Widget(OWWidget):
         else:
             self.dataYLD = None
 
-    @Inputs.dataSZJ
+    # @Inputs.dataSZJ
     def set_dataSZJ(self, data):
         if data:
             self.dataSZJ = data
@@ -72,14 +72,14 @@ class Widget(OWWidget):
         else:
             self.dataSZJ = None
 
-    @Inputs.pathSZJ
+    # @Inputs.pathSZJ
     def set_pathSZJ(self, path):
         if path:
             self.inputpathSZJ = path
         else:
             self.inputpathSZJ = None
 
-    @Inputs.pathYLD
+    # @Inputs.pathYLD
     def set_pathYLD(self, path):
         if path:
             self.inputpathYLD = path
@@ -127,10 +127,10 @@ class Widget(OWWidget):
 
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
-        table = Output("数据Table", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
-        data = Output("数据List", list, auto_summary=False)  # 输出给控件
-        raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
-        payload = Output("payload", dict, auto_summary=False)
+        # table = Output("数据Table", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
+        # data = Output("数据List", list, auto_summary=False)  # 输出给控件
+        # raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -257,10 +257,10 @@ class Widget(OWWidget):
             self.error('未生成结果数据')
             return
         self.save(result)
-        self.Outputs.table.send(table_from_frame(result))
-        self.Outputs.data.send([result])
+        # self.Outputs.table.send(table_from_frame(result))
+        # self.Outputs.data.send([result])
         raw = {'maindata': result, 'target': [], 'future': []}
-        self.Outputs.raw.send(raw)
+        # self.Outputs.raw.send(raw)
         self.Outputs.payload.send(self.build_output_payload(result, raw))
 
     def build_output_payload(self, result, raw):

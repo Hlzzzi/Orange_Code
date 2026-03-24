@@ -36,12 +36,12 @@ class Widget(OWWidget):
 
     class Inputs:  # TODO:输入
         # 老接口保留
-        data = Input("数据", list, auto_summary=False)
-        filepath = Input("文件路径", str, auto_summary=False)
-        dataTable = Input("数据表格", Table, auto_summary=False)
+        # data = Input("数据", list, auto_summary=False)
+        # filepath = Input("文件路径", str, auto_summary=False)
+        # dataTable = Input("数据表格", Table, auto_summary=False)
 
         # 新增标准 payload 输入
-        payload = Input("payload", dict, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -82,7 +82,7 @@ class Widget(OWWidget):
             return obj.copy()
         return None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             print("数据输入成功::::", data)
@@ -94,7 +94,7 @@ class Widget(OWWidget):
         else:
             self.data = None
 
-    @Inputs.dataTable
+    # @Inputs.dataTable
     def set_dataTable(self, dataTable):
         if dataTable:
             self.data = table_to_frame(dataTable)
@@ -147,7 +147,7 @@ class Widget(OWWidget):
     firstdepths = None
     stopdepths = None
 
-    @Inputs.filepath
+    # @Inputs.filepath
     def set_filepath(self, filepath):
         if filepath:
             self.user_inputpath = filepath
@@ -170,9 +170,9 @@ class Widget(OWWidget):
     #         print('请先输入文件路径')
 
     class Outputs:  # TODO:输出
-        table = Output("汇总大表", Table, auto_summary=False)
-        data = Output("汇总数据", list, auto_summary=False)
-        payload = Output("payload", dict, auto_summary=False)
+        # table = Output("汇总大表", Table, auto_summary=False)
+        # data = Output("汇总数据", list, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -364,8 +364,8 @@ class Widget(OWWidget):
         filename = self.save(result)
         result_table = table_from_frame(result)
 
-        self.Outputs.data.send([result])
-        self.Outputs.table.send(result_table)
+        # self.Outputs.data.send([result])
+        # self.Outputs.table.send(result_table)
 
         output_payload = self.build_output_payload(
             result_df=result,

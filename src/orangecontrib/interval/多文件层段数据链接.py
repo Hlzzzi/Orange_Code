@@ -34,15 +34,15 @@ class cengduan(OWWidget):
 
     class Inputs:  # TODO:输入
         # 油层组数据：通过【测井数据加载】控件【单文件选择】功能载入
-        dataYCZ = Input("目标类数据", list, auto_summary=False)
+        # dataYCZ = Input("目标类数据", list, auto_summary=False)
         # 钻测录数据：通过【测井数据加载】控件【文件夹选择】功能载入
-        dataZCL = Input("钻测录数据", list, auto_summary=False)
+        # dataZCL = Input("钻测录数据", list, auto_summary=False)
         # 钻测录数据文件名：通过修改后（增加了文件名list输出）的【测井数据加载】控件载入
-        dataZCL_names = Input("钻测录井名", list, auto_summary=False)
+        # dataZCL_names = Input("钻测录井名", list, auto_summary=False)
 
         # 新增标准 payload 双输入
-        payloadYCZ = Input("目标类数据Payload", dict, auto_summary=False)
-        payloadZCL = Input("钻测录数据Payload", dict, auto_summary=False)
+        payloadYCZ = Input("目标类数据(data)", dict, auto_summary=False)
+        payloadZCL = Input("钻测录数据(data)", dict, auto_summary=False)
 
     dataYCZ: list = None
     dataZCL: list = None  # list[pd.DataFrame]
@@ -84,7 +84,7 @@ class cengduan(OWWidget):
                 result.append(obj.copy())
         return result
 
-    @Inputs.dataYCZ
+    # @Inputs.dataYCZ
     def set_dataYCZ(self, data):
         if data:
             self.dataYCZ = self._coerce_first_df(data)
@@ -93,7 +93,7 @@ class cengduan(OWWidget):
         else:
             self.dataYCZ = None
 
-    @Inputs.dataZCL
+    # @Inputs.dataZCL
     def set_dataZCL(self, data):
         if data:
             self.dataZCL = self._coerce_df_list(data)
@@ -102,7 +102,7 @@ class cengduan(OWWidget):
         else:
             self.dataZCL = None
 
-    @Inputs.dataZCL_names
+    # @Inputs.dataZCL_names
     def set_dataZCL_names(self, data):
         if data:
             self.dataZCL_names = list(data)
@@ -176,12 +176,12 @@ class cengduan(OWWidget):
 
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
-        table = Output("数据(Data)", Table, replaces=['Data'])  # 纯数据Table输出，用于与Orange其他部件交互
+        # table = Output("数据(Data)", Table, replaces=['Data'])  # 纯数据Table输出，用于与Orange其他部件交互
         # table = Output("数据表", Orange.data.Table)
-        data = Output("数据List", list, auto_summary=False)  # 输出给控件
-        raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
+        # data = Output("数据List", list, auto_summary=False)  # 输出给控件
+        # raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
 
-        payload = Output("payload", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -386,9 +386,9 @@ class cengduan(OWWidget):
         filename = self.save(result)
         result_table = table_from_frame(result)
 
-        self.Outputs.table.send(result_table)
-        self.Outputs.data.send([result])
-        self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
+        # self.Outputs.table.send(result_table)
+        # self.Outputs.data.send([result])
+        # self.Outputs.raw.send({'maindata': result, 'target': [], 'future': [], 'filename': filename})
 
         output_payload = self.build_output_payload(
             result_df=result,

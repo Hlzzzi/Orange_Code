@@ -32,8 +32,9 @@ class Widget(OWWidget):
         pass
 
     class Outputs:
+        pass
         # if there are two or more outputs, default=True marks the default output
-        raw = Output("Models", dict, auto_summary=False)
+        # raw = Output("Models", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -54,7 +55,7 @@ class Widget(OWWidget):
                 self.warning("不支持的文件格式: " + item)
                 continue
             send_dict[item] = model
-        self.Outputs.raw.send(send_dict)
+        # self.Outputs.raw.send(send_dict)
         self.close()
 
     def load(self, file_path: str):

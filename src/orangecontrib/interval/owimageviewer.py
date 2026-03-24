@@ -213,11 +213,13 @@ class OWImageViewer(OWWidget):
     category = '图像分析'
 
     class Inputs:
-        data = Input("Data", Orange.data.Table)
+        pass
+        # data = Input("Data", Orange.data.Table)
 
     class Outputs:
-        selected_data = Output("Selected Images", Orange.data.Table)
-        data = Output("Data", Orange.data.Table)
+        pass
+        # selected_data = Output("Selected Images", Orange.data.Table)
+        # data = Output("Data", Orange.data.Table)
 
     class Warning(OWWidget.Warning):
         no_images_shown = Msg(
@@ -307,7 +309,7 @@ class OWImageViewer(OWWidget):
     def sizeHint(self):
         return QSize(800, 600)
 
-    @Inputs.data
+    # @Inputs.data
     def setData(self, data):
         if self.image_attr is not None:
             # Don't store invalid contexts because they will match anything
@@ -473,11 +475,12 @@ class OWImageViewer(OWWidget):
         if self.data:
             selected_idx = self.__selected_indexes()
             selected = self.data[selected_idx] if selected_idx else None
-            self.Outputs.selected_data.send(selected)
-            self.Outputs.data.send(create_annotated_table(self.data, selected_idx))
+            # self.Outputs.selected_data.send(selected)
+            # self.Outputs.data.send(create_annotated_table(self.data, selected_idx))
         else:
-            self.Outputs.selected_data.send(None)
-            self.Outputs.data.send(None)
+            # self.Outputs.selected_data.send(None)
+            # self.Outputs.data.send(None)
+            pass
 
     def _updateStatus(self):
         count = len([item for item in self.items if item.future is not None])

@@ -26,13 +26,13 @@ class Widget(OWWidget):
     resizing_enabled = True
 
     class Inputs:
-        models = Input("Models", dict, auto_summary=False)
+        # models = Input("Models", dict, auto_summary=False)
         # 单文件加载
-        data = Input("Data", list, auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
-        data_payload = Input("应用数据payload", dict, auto_summary=False)
+        # data = Input("Data", list, auto_summary=False)
+        payload = Input("模型(model)", dict, auto_summary=False)
+        data_payload = Input("数据(data)", dict, auto_summary=False)
 
-    @Inputs.models
+    # @Inputs.models
     def set_models(self, data):
         if data:
             self.models: dict = data
@@ -40,7 +40,7 @@ class Widget(OWWidget):
         else:
             self.models = None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             self.data: pd.DataFrame = Utils_w.readDataFromList(data)
@@ -90,8 +90,8 @@ class Widget(OWWidget):
 
     class Outputs:  # TODO
         # if there are two or more outputs, default=True marks the default output
-        outputDict = Output("Output", dict, auto_summary=False)
-        payload = Output("payload", dict, auto_summary=False)
+        # outputDict = Output("Output", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -202,7 +202,7 @@ class Widget(OWWidget):
             filename = target + "_predict." + self.save_mode_list[self.save_format]
             output[filename] = self.prediction(self.data, target, models)
         self.save(output)
-        self.Outputs.outputDict.send(output)
+        # self.Outputs.outputDict.send(output)
         self.Outputs.payload.send(self._build_output_payload(output))
         self.close()
 

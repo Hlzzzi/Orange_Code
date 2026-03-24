@@ -31,11 +31,11 @@ class OWDataSamplerA(widget.OWWidget):
     priority = 10
 
     class Inputs:
-        in_data_dict = Input("Data list(dict)", dict, auto_summary=False, multiple=True)
+        # in_data_dict = Input("Data list(dict)", dict, auto_summary=False, multiple=True)
 
-        payload = Input("payload", dict, auto_summary=False, multiple=True)
+        payload = Input("数据(data)", dict, auto_summary=False, multiple=True)
 
-    @Inputs.in_data_dict
+    # @Inputs.in_data_dict
     def set_data(self, input_data, id):
         if input_data is None:
             self._remove_source_entries(id)
@@ -57,10 +57,10 @@ class OWDataSamplerA(widget.OWWidget):
 
     class Outputs:
         # 老兼容输出：保持原来“发送 dict”的语义
-        data = Output("Data list(dict)", dict, auto_summary=False)
+        # data = Output("Data list(dict)", dict, auto_summary=False)
 
         # 新标准 payload 输出
-        payload = Output("payload", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     # 是否开启主区域
     want_main_area = False
@@ -380,7 +380,7 @@ class OWDataSamplerA(widget.OWWidget):
             return
 
         # 老兼容输出：仍然把当前老 dict 输入缓存发出去
-        self.Outputs.data.send(self.input_data)
+        # self.Outputs.data.send(self.input_data)
 
         # 新标准 payload 输出
         output_payload = self.build_output_payload(saved_records)
@@ -485,7 +485,7 @@ class OWDataSamplerA(widget.OWWidget):
 
     # Inputs.data 中的data是变量名字，如：上面输入的data
     # 处理输入的数据
-    @Inputs.in_data_dict
+    # @Inputs.in_data_dict
     def set_data(self, input_data,id):
         if id in self.input_data.keys():
             if input_data is None:

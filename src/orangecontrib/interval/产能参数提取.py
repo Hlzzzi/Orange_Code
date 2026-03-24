@@ -34,12 +34,12 @@ class Widget(OWWidget):
 
     class Inputs:  # TODO:输入
         # 压裂段数据：通过【测井数据加载】控件【多文件选择】功能载入
-        data = Input("数据", list, auto_summary=False)
-        filepath = Input("文件路径", str, auto_summary=False)
-        filename = Input("文件名", list, auto_summary=False)
+        # data = Input("数据", list, auto_summary=False)
+        # filepath = Input("文件路径", str, auto_summary=False)
+        # filename = Input("文件名", list, auto_summary=False)
 
         # 新增标准 payload 接口
-        payload = Input("payload", dict, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -122,7 +122,7 @@ class Widget(OWWidget):
         if self.data is not None:
             self.read()
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             print("数据输入成功::::", data)
@@ -138,7 +138,7 @@ class Widget(OWWidget):
         else:
             self.data = None
 
-    @Inputs.filepath
+    # @Inputs.filepath
     def set_filepath(self, filepath):
         if filepath:
             self.user_inputpath = filepath
@@ -147,7 +147,7 @@ class Widget(OWWidget):
             self.user_inputpath = None
 
     listfile = None
-    @Inputs.filename
+    # @Inputs.filename
     def set_filename(self, filename):
         if filename:
             self.listfile = filename
@@ -156,13 +156,13 @@ class Widget(OWWidget):
             self.listfile = None
 
     class Outputs:  # TODO:输出
-        table = Output("数据(Data)", Table)  # 纯数据Table输出，用于与Orange其他部件交互
-        data = Output("数据List", list, auto_summary=False)  # 输出给控件
-        file_name = Output("文件名", list, auto_summary=False)
-        file_path = Output("文件路径", str, auto_summary=False)
+        # table = Output("数据(Data)", Table)  # 纯数据Table输出，用于与Orange其他部件交互
+        # data = Output("数据List", list, auto_summary=False)  # 输出给控件
+        # file_name = Output("文件名", list, auto_summary=False)
+        # file_path = Output("文件路径", str, auto_summary=False)
 
         # 新增标准 payload 输出
-        payload = Output("payload", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
 
     @gui.deferred
@@ -383,10 +383,10 @@ class Widget(OWWidget):
         result_table = table_from_frame(result_df_orange)
 
         # 老输出保留
-        self.Outputs.table.send(result_table)
-        self.Outputs.data.send([result_df_orange])
-        self.Outputs.file_path.send(excel_file_path)
-        self.Outputs.file_name.send(['产能参数提取配置文件.xlsx'])
+        # self.Outputs.table.send(result_table)
+        # self.Outputs.data.send([result_df_orange])
+        # self.Outputs.file_path.send(excel_file_path)
+        # self.Outputs.file_name.send(['产能参数提取配置文件.xlsx'])
 
         # 新标准 payload 输出
         output_payload = self.build_output_payload(

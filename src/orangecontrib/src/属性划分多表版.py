@@ -28,17 +28,17 @@ class OWDataSamplerA(widget.OWWidget):
     priority = 10
 
     class Inputs:
-        in_data_dict = Input("Data list(dict)", dict, auto_summary=False, multiple=True)
-        payload = Input("payload", dict, auto_summary=False, multiple=True)
+        # in_data_dict = Input("Data list(dict)", dict, auto_summary=False, multiple=True)
+        payload = Input("数据(data)", dict, auto_summary=False, multiple=True)
 
     class Outputs:
-        out_data_dict = Output("Data list(dict)", dict, auto_summary=False)
-        out_data_table = Output("Data list(table)", Orange.data.Table)
-        payload = Output("payload", dict, auto_summary=False)
+        # out_data_dict = Output("Data list(dict)", dict, auto_summary=False)
+        # out_data_table = Output("Data list(table)", Orange.data.Table)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     # Inputs.data 中的data是变量名字，如：上面输入的data
     # 处理输入的数据
-    @Inputs.in_data_dict
+    # @Inputs.in_data_dict
     def set_data(self, input_data, id):
         self.loading_data = True
         if id in self.input_data_dicts_id:
@@ -225,8 +225,8 @@ class OWDataSamplerA(widget.OWWidget):
 
             send_list_dict.append(send_data)
             send_list_table.append(table_from_frame(temp_file_data))
-        self.Outputs.out_data_dict.send(send_list_dict)
-        self.Outputs.out_data_table.send(send_list_table)
+        # self.Outputs.out_data_dict.send(send_list_dict)
+        # self.Outputs.out_data_table.send(send_list_table)
         self.Outputs.payload.send(self.build_output_payload(send_list_dict, need_to_send_file_data, send_list_table))
 
     def __init__(self):

@@ -35,10 +35,10 @@ class Widget(OWWidget):
 
     class Inputs:  # TODO:输入
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
-        data = Input("数据", list, auto_summary=False)
-        filepath = Input("文件路径", str, auto_summary=False)
-        file_name = Input("文件名", list, auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
+        # data = Input("数据", list, auto_summary=False)
+        # filepath = Input("文件路径", str, auto_summary=False)
+        # file_name = Input("文件名", list, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -115,7 +115,7 @@ class Widget(OWWidget):
                 self.fillfile()
             except Exception:
                 pass
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             print("数据输入成功::::", data)
@@ -134,7 +134,7 @@ class Widget(OWWidget):
     firstdepths = None
     stopdepths = None
 
-    @Inputs.filepath
+    # @Inputs.filepath
     def set_filepath(self, filepath):
         if filepath:
             self.user_inputpath = filepath
@@ -144,7 +144,7 @@ class Widget(OWWidget):
 
         # wellnames99, self.firstdepths, self.stopdepths = self.getdepthlist(self.user_inputpath, depth_index=self.depth_index)
 
-    @Inputs.file_name
+    # @Inputs.file_name
     def set_file_name(self, file_name):
         if file_name:
             self.file_name = file_name
@@ -157,11 +157,11 @@ class Widget(OWWidget):
             print('请先输入文件路径')
 
     class Outputs:  # TODO:输出
-        table = Output("汇总大表", Table, auto_summary=False)  # 纯数据Table输出，用于与Orange其他部件交互
-        data = Output("汇总数据", list, auto_summary=False)  # 输出给控件
-        file_name = Output("文件名", list, auto_summary=False)
-        file_path = Output("文件路径", str, auto_summary=False)
-        payload = Output("payload", dict, auto_summary=False)
+        # table = Output("汇总大表", Table, auto_summary=False)  # 纯数据Table输出，用于与Orange其他部件交互
+        # data = Output("汇总数据", list, auto_summary=False)  # 输出给控件
+        # file_name = Output("文件名", list, auto_summary=False)
+        # file_path = Output("文件路径", str, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -333,10 +333,10 @@ class Widget(OWWidget):
         except Exception as e:
             self.error(str(e))
             return
-        self.Outputs.table.send(table_from_frame(result_df))
-        self.Outputs.data.send([result_df])
-        self.Outputs.file_path.send(folder_path)
-        self.Outputs.file_name.send(['数据归一标准化配置文件.xlsx'])
+        # self.Outputs.table.send(table_from_frame(result_df))
+        # self.Outputs.data.send([result_df])
+        # self.Outputs.file_path.send(folder_path)
+        # self.Outputs.file_name.send(['数据归一标准化配置文件.xlsx'])
         self.Outputs.payload.send(self.build_output_payload(result_df, folder_path, file_path))
 
     def run(self):

@@ -72,11 +72,11 @@ class OWDataSamplerA(widget.OWWidget):
     category = '井筒数字岩心大数据分析'
 
     class Inputs:
-        data = Input("Data list", dict, auto_summary=False)
-        data_file_data_list = Input("Table_list", list, auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
+        # data = Input("Data list", dict, auto_summary=False)
+        # data_file_data_list = Input("Table_list", list, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
-    @Inputs.data_file_data_list
+    # @Inputs.data_file_data_list
     def set_data_file_data_list(self, data_file_data_list):
         if data_file_data_list is None:
             self.error("数据输入为空")
@@ -96,7 +96,7 @@ class OWDataSamplerA(widget.OWWidget):
             return
         self.set_data_list(data_name_data_dict)
 
-    @Inputs.data
+    # @Inputs.data
     def set_data_list(self, data_list):
         self.input_data = data_list
         # note data_list 应该是一个dict，包含有maindata,target,future
@@ -220,11 +220,11 @@ class OWDataSamplerA(widget.OWWidget):
         return base
 
     class Outputs:
-        data_list = Output("Data list", dict, auto_summary=False)
-        data_table = Output("基于相关系数的层次聚类算法数据(table)", Orange.data.Table, auto_summary=False)
-        data_matrix = Output("矩阵数据(table)", Orange.data.Table, auto_summary=False)
-        data_tiao = Output("条形图数据(table)", Orange.data.Table, auto_summary=False)
-        payload = Output("payload", dict, auto_summary=False)
+        # data_list = Output("Data list", dict, auto_summary=False)
+        # data_table = Output("基于相关系数的层次聚类算法数据(table)", Orange.data.Table, auto_summary=False)
+        # data_matrix = Output("矩阵数据(table)", Orange.data.Table, auto_summary=False)
+        # data_tiao = Output("条形图数据(table)", Orange.data.Table, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     def launch_task(self):
         futures = self._executor.submit(
@@ -329,18 +329,19 @@ class OWDataSamplerA(widget.OWWidget):
         main_big_table["filename"] = "数据大表"
 
         if self.auto_send and self.output_data is not None:
-            self.Outputs.data_list.send(main_big_table)
+            # self.Outputs.data_list.send(main_big_table)
             # print("send data_list")
             # print(main_big_table)
-            self.Outputs.data_table.send(table_from_frame(main_big_table["maindata"]))
+            # self.Outputs.data_table.send(table_from_frame(main_big_table["maindata"]))
             print("send data_table")
             print(type(main_big_table["maindata"]))
             print(main_big_table["maindata"])
-            self.Outputs.data_matrix.send(table_from_frame(self.output_data.get("matrix")))
+            # self.Outputs.data_matrix.send(table_from_frame(self.output_data.get("matrix")))
             target = self.get_future_target()[1]
             if target is not None:
-                self.Outputs.data_tiao.send(
-                    table_from_frame(self.get_pd_data_one_colunm(self.output_data.get("matrix"), target[0])))
+                # self.Outputs.data_tiao.send(
+                #     table_from_frame(self.get_pd_data_one_colunm(self.output_data.get("matrix"), target[0])))
+                pass
 
             else:
                 print("target is None")

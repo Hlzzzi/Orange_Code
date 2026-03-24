@@ -35,10 +35,10 @@ class Widget(OWWidget):
 
     class Inputs:  # TODO:输入
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
-        data = Input("数据", list, auto_summary=False)
+        # data = Input("数据", list, auto_summary=False)
         # filepath = Input("文件路径", str, auto_summary=False)
-        datatable = Input("数据表", Table,auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
+        # datatable = Input("数据表", Table,auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -77,7 +77,7 @@ class Widget(OWWidget):
             return obj.copy()
         return None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             print("数据输入成功::::", data)
@@ -87,7 +87,7 @@ class Widget(OWWidget):
         else:
             self.data = None
 
-    @Inputs.datatable
+    # @Inputs.datatable
     def set_datatable(self, data):
         self.data_orange = data
         if data:
@@ -142,9 +142,9 @@ class Widget(OWWidget):
     #         self.user_inputpath = None
 
     class Outputs:  # TODO:输出
-        table = Output("数据(Data)", Table)  # 纯数据Table输出，用于与Orange其他部件交互
-        data = Output("数据List", list, auto_summary=False)  # 输出给控件
-        payload = Output("payload", dict, auto_summary=False)
+        # table = Output("数据(Data)", Table)  # 纯数据Table输出，用于与Orange其他部件交互
+        # data = Output("数据List", list, auto_summary=False)  # 输出给控件
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -274,8 +274,8 @@ class Widget(OWWidget):
             return
         filename = self.save(result_df)
         result_table = table_from_frame(result_df)
-        self.Outputs.table.send(result_table)
-        self.Outputs.data.send([result_df])
+        # self.Outputs.table.send(result_table)
+        # self.Outputs.data.send([result_df])
         output_payload = self.build_output_payload(result_df=result_df, result_table=result_table, saved_filename=filename)
         self.Outputs.payload.send(output_payload)
 

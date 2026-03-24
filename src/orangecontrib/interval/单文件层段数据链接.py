@@ -33,13 +33,13 @@ class Widget(OWWidget):
 
     class Inputs:  # TODO:输入
         # 压裂段数据：通过【测井数据加载】控件【多文件选择】功能载入
-        dataYX = Input("层段数据", list, auto_summary=False)
+        # dataYX = Input("层段数据", list, auto_summary=False)
         # 微地震数据：通过【测井数据加载】控件【单文件选择】功能载入
-        dataDB = Input("单表数据", list, auto_summary=False)
+        # dataDB = Input("单表数据", list, auto_summary=False)
 
         # 新增 payload 双输入
-        payloadYX = Input("层段数据Payload", dict, auto_summary=False)
-        payloadDB = Input("单表数据Payload", dict, auto_summary=False)
+        payloadYX = Input("层段数据(data)", dict, auto_summary=False)
+        payloadDB = Input("单表数据(data)", dict, auto_summary=False)
 
     dataYX: pd.DataFrame = None
     dataDB: pd.DataFrame = None
@@ -59,7 +59,7 @@ class Widget(OWWidget):
     bigtable_wellname = None
     logdepthindex = None
 
-    @Inputs.dataYX
+    # @Inputs.dataYX
     def set_dataYX(self, data):
         if data:
             self.dataYX = self._coerce_to_dataframe(data)
@@ -67,7 +67,7 @@ class Widget(OWWidget):
         else:
             self.dataYX = None
 
-    @Inputs.dataDB
+    # @Inputs.dataDB
     def set_dataDB(self, data):
         if data:
             self.dataDB = self._coerce_to_dataframe(data)
@@ -125,12 +125,12 @@ class Widget(OWWidget):
 
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
-        table = Output("数据(Data)", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
-        data = Output("数据List", list, auto_summary=False)  # 输出给控件
-        raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
+        # table = Output("数据(Data)", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
+        # data = Output("数据List", list, auto_summary=False)  # 输出给控件
+        # raw = Output("数据Dict", dict, auto_summary=False)  # 输出给控件【基于相关系数的层次聚类算法】
 
         # 新增标准 payload 输出
-        payload = Output("payload", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -320,14 +320,14 @@ class Widget(OWWidget):
         result_table = table_from_frame(result_df)
 
         # 老输出保留
-        self.Outputs.table.send(result_table)
-        self.Outputs.data.send([result_df])
-        self.Outputs.raw.send({
-            'maindata': result_df,
-            'target': [],
-            'future': [],
-            'filename': filename
-        })
+        # self.Outputs.table.send(result_table)
+        # self.Outputs.data.send([result_df])
+        # self.Outputs.raw.send({
+        #     'maindata': result_df,
+        #     'target': [],
+        #     'future': [],
+        #     'filename': filename
+        # })
 
         # 新 payload 输出
         output_payload = self.build_output_payload(

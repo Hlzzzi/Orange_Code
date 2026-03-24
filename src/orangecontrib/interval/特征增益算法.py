@@ -27,15 +27,15 @@ class Widget(OWWidget):
     resizing_enabled = True
 
     class Inputs:
-        data = Input("数据", list, auto_summary=False)
-        filepath = Input("文件路径", str, auto_summary=False)
-        file_name = Input("文件名", list, auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
+        # data = Input("数据", list, auto_summary=False)
+        # filepath = Input("文件路径", str, auto_summary=False)
+        # file_name = Input("文件名", list, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     class Outputs:
-        table = Output("汇总大表", Table, auto_summary=False)
-        data = Output("汇总数据", list, auto_summary=False)
-        payload = Output("payload", dict, auto_summary=False)
+        # table = Output("汇总大表", Table, auto_summary=False)
+        # data = Output("汇总数据", list, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     save_radio = Setting(2)
 
@@ -134,7 +134,7 @@ class Widget(OWWidget):
             return obj.copy()
         return None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             self.data = self._coerce_to_df(data)
@@ -144,11 +144,11 @@ class Widget(OWWidget):
         else:
             self.data = None
 
-    @Inputs.filepath
+    # @Inputs.filepath
     def set_filepath(self, filepath):
         self.user_inputpath = filepath if filepath else self.user_inputpath
 
-    @Inputs.file_name
+    # @Inputs.file_name
     def set_file_name(self, file_name):
         self.file_name = list(file_name) if file_name else []
         self.fillfile()
@@ -421,8 +421,8 @@ class Widget(OWWidget):
             self.error('未生成结果数据'); return
         filename = self.save(result_df)
         result_table = table_from_frame(result_df)
-        self.Outputs.data.send([result_df])
-        self.Outputs.table.send(result_table)
+        # self.Outputs.data.send([result_df])
+        # self.Outputs.table.send(result_table)
         output_payload = self.build_output_payload(result_df=result_df, result_table=result_table, saved_filename=filename)
         self.Outputs.payload.send(output_payload)
 

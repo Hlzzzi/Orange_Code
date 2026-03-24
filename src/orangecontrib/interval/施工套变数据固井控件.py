@@ -34,14 +34,14 @@ class cengduan(OWWidget):
 
     class Inputs:  # TODO:输入
         # 数据：通过【测井数据加载】控件【单文件选择】功能载入
-        dataTOC = Input("目标类数据", list, auto_summary=False)
-        payloadTOC = Input("目标类payload", dict, auto_summary=False)
+        # dataTOC = Input("目标类数据", list, auto_summary=False)
+        payloadTOC = Input("目标类数据(data)", dict, auto_summary=False)
         # 数据：通过【测井数据加载】控件【文件夹选择】功能载入
-        dataQX = Input("曲线数据", list, auto_summary=False)
-        payloadQX = Input("曲线payload", dict, auto_summary=False)
-        dataQXPH = Input("曲线路径", str, auto_summary=False)
+        # dataQX = Input("曲线数据", list, auto_summary=False)
+        payloadQX = Input("曲线数据(data)", dict, auto_summary=False)
+        # dataQXPH = Input("曲线路径", str, auto_summary=False)
         # 钻测录数据文件名：通过修改后（增加了文件名list输出）的【测井数据加载】控件载入
-        dataQX_names = Input("曲线井名", list, auto_summary=False)
+        # dataQX_names = Input("曲线井名", list, auto_summary=False)
 
     dataTOC: list = None
     dataQX: list = None  # list[pd.DataFrame]
@@ -109,7 +109,7 @@ class cengduan(OWWidget):
             self.set_dataZCLPH(folder)
         dataTOCPH: str = None
 
-    @Inputs.dataTOC
+    # @Inputs.dataTOC
     def set_dataYCZ(self, data):
 
         if data:
@@ -136,7 +136,7 @@ class cengduan(OWWidget):
         else:
             self.dataTOC = None
 
-    @Inputs.dataQX
+    # @Inputs.dataQX
     def set_dataZCL(self, data):
 
         if data:
@@ -158,14 +158,14 @@ class cengduan(OWWidget):
 
     dataQXPH: str = None
 
-    @Inputs.dataQXPH
+    # @Inputs.dataQXPH
     def set_dataZCLPH(self, data):
         if data:
             self.dataQXPH: str = data
         else:
             self.dataQXPH = None
 
-    @Inputs.dataQX_names
+    # @Inputs.dataQX_names
     def set_dataZCL_names(self, data):
         if data:
             self.dataQX_names: list = data
@@ -175,10 +175,10 @@ class cengduan(OWWidget):
 
     class Outputs:  # TODO:输出
         # if there are two or more outputs, default=True marks the default output
-        table = Output("数据(Data)", Table, replaces=['Data'])  # 纯数据Table输出，用于与Orange其他部件交互
+        # table = Output("数据(Data)", Table, replaces=['Data'])  # 纯数据Table输出，用于与Orange其他部件交互
         # table = Output("数据表", Orange.data.Table)
-        data = Output("数据List", list, auto_summary=False)  # 输出给控件
-        payload = Output("payload", dict, auto_summary=False)
+        # data = Output("数据List", list, auto_summary=False)  # 输出给控件
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -290,8 +290,8 @@ class cengduan(OWWidget):
         except Exception as e:
             self.error(str(e))
             return
-        self.Outputs.data.send([result])
-        self.Outputs.table.send(table_from_frame(result))
+        # self.Outputs.data.send([result])
+        # self.Outputs.table.send(table_from_frame(result))
         self.Outputs.payload.send(self.build_output_payload(result))
 
     def run(self):

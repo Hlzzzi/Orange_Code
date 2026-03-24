@@ -36,12 +36,12 @@ class Widget(OWWidget):
 
     class Inputs:  # TODO:输入
         # 压裂段数据：通过【测井数据加载】控件【单文件选择】功能载入
-        data = Input("数据", list, auto_summary=False)
-        filepath = Input("文件路径", str, auto_summary=False)
-        file_name = Input("文件名", list, auto_summary=False)
+        # data = Input("数据", list, auto_summary=False)
+        # filepath = Input("文件路径", str, auto_summary=False)
+        # file_name = Input("文件名", list, auto_summary=False)
 
         # 新增标准 payload 输入
-        payload = Input("payload", dict, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     user_input = None
     data: pd.DataFrame = None
@@ -95,7 +95,7 @@ class Widget(OWWidget):
 
         return None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             print("数据输入成功::::", data)
@@ -106,7 +106,7 @@ class Widget(OWWidget):
             self.ALLdata = []
             self.data = None
 
-    @Inputs.filepath
+    # @Inputs.filepath
     def set_filepath(self, filepath):
         if filepath:
             self.user_inputpath = filepath
@@ -124,7 +124,7 @@ class Widget(OWWidget):
         except Exception as e:
             print('fillfile 失败', e)
 
-    @Inputs.file_name
+    # @Inputs.file_name
     def set_file_name(self, file_name):
         if file_name:
             self.file_name = list(file_name)
@@ -191,13 +191,13 @@ class Widget(OWWidget):
             self.read()
 
     class Outputs:  # TODO:输出
-        tableDuan = Output("段表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
-        tableCu = Output("簇表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
-        dataDuan = Output("段数据List", list, auto_summary=False)  # 输出给控件
-        dataCu = Output("簇数据List", list, auto_summary=False)  # 输出给控件
+        # tableDuan = Output("段表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
+        # tableCu = Output("簇表", Table)  # 纯数据Table输出，用于与Orange其他部件交互
+        # dataDuan = Output("段数据List", list, auto_summary=False)  # 输出给控件
+        # dataCu = Output("簇数据List", list, auto_summary=False)  # 输出给控件
 
         # 新增标准 payload 输出
-        payload = Output("payload", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -527,10 +527,10 @@ class Widget(OWWidget):
         cluster_filename, cluster_file_path = self._save_result_with_suffix(sk_result, "簇表")
 
         # 老输出保留
-        self.Outputs.tableDuan.send(stages_table)
-        self.Outputs.tableCu.send(sk_table)
-        self.Outputs.dataDuan.send([stages_result])
-        self.Outputs.dataCu.send([sk_result])
+        # self.Outputs.tableDuan.send(stages_table)
+        # self.Outputs.tableCu.send(sk_table)
+        # self.Outputs.dataDuan.send([stages_result])
+        # self.Outputs.dataCu.send([sk_result])
 
         # 新标准 payload 输出：一个 payload，多 item
         output_payload = self.build_output_payload(

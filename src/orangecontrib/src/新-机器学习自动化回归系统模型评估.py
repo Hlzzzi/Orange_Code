@@ -27,17 +27,20 @@ class Widget(OWWidget):
     category = "井筒数字岩心大数据分析"
     want_main_area = False
     resizing_enabled = True
+    input_payload = None
+    data_payload = None
 
     class Inputs:
         # 机器学习自动回归模型训练 输出
-        models = Input("Models", dict, auto_summary=False)
+        # models = Input("Models", dict, auto_summary=False)
         # 从各种类型数据源尝试读取一个表
-        data = Input("Data", list, auto_summary=False)
-        data_table = Input("DataTable", Table, auto_summary=False)
-        data_dict = Input("DataDict", dict, auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
+        # data = Input("Data", list, auto_summary=False)
+        # data_table = Input("DataTable", Table, auto_summary=False)
+        # data_dict = Input("DataDict", dict, auto_summary=False)
+        payload = Input("模型(model)", dict, auto_summary=False)
+        data_payload = Input("数据(data)", dict, auto_summary=False)
 
-    @Inputs.models
+    # @Inputs.models
     def set_models(self, data):
         if data:
             self.models: dict = data
@@ -45,7 +48,7 @@ class Widget(OWWidget):
         else:
             self.models = None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             self.data: pd.DataFrame = Utils_w.readDataFromList(data)
@@ -53,7 +56,7 @@ class Widget(OWWidget):
         else:
             self.data = None
 
-    @Inputs.data_table
+    # @Inputs.data_table
     def set_data_table(self, data):
         if data:
             self.data: pd.DataFrame = Utils_w.tableToDataFrame(data)
@@ -61,7 +64,7 @@ class Widget(OWWidget):
         else:
             self.data = None
 
-    @Inputs.data_dict
+    # @Inputs.data_dict
     def set_data_dict(self, data):
         if data:
             self.data: pd.DataFrame = Utils_w.readDataFromDict(data)
@@ -73,23 +76,39 @@ class Widget(OWWidget):
     def set_payload(self, payload):
         if not payload:
             self.input_payload = None
+            self.models = None
+            if self.data_payload is None:
+                self.data = None
+            self.read()
             return
         self.input_payload = PayloadManager.ensure_payload(payload, node_name=self.name, node_type='eval', task='evaluate', data_kind='model_bundle')
         print('payload 输入成功::::', PayloadManager.summary(self.input_payload))
-        models = self.input_payload.get('models', {}) or {}
-        self.models = models.get('selected') or models.get('all') or models.get('best') or {}
-        df = PayloadManager.get_single_dataframe(self.input_payload, role='test') or PayloadManager.get_single_dataframe(self.input_payload)
-        if df is None:
-            table = PayloadManager.get_single_table(self.input_payload, role='test') or PayloadManager.get_single_table(self.input_payload)
-            if table is not None:
-                df = Utils_w.tableToDataFrame(table)
-        self.data = df
-        self.read()
+        self._apply_workflow_payload(self.input_payload)
+
+    @Inputs.data_payload
+    def set_data_payload(self, payload):
+        if not payload:
+            self.data_payload = None
+            if self.input_payload is not None:
+                self.data = self._get_workflow_default_df(self.input_payload)
+            else:
+                self.data = None
+            self.read()
+            return
+
+        self.data_payload = PayloadManager.ensure_payload(
+            payload,
+            node_name=self.name,
+            node_type='eval',
+            task='evaluate',
+            data_kind='table_batch'
+        )
+        self._apply_external_data_payload(self.data_payload)
 
     class Outputs:
         # if there are two or more outputs, default=True marks the default output
-        models = Output("Selected_Models", dict, auto_summary=False)
-        payload = Output("payload", dict, auto_summary=False)
+        # models = Output("Selected_Models", dict, auto_summary=False)
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -132,17 +151,73 @@ class Widget(OWWidget):
 
     # ↑↑↑↑↑↑ 一些可以调整代码行为的全局变量 ↑↑↑↑↑↑
 
+    def _payload_to_df(self, payload, role=None):
+        df = PayloadManager.get_single_dataframe(payload, role=role)
+        if df is not None:
+            return df
+        table = PayloadManager.get_single_table(payload, role=role)
+        if table is not None:
+            return Utils_w.tableToDataFrame(table)
+        return None
+
+    def _get_workflow_default_df(self, payload):
+        df = self._payload_to_df(payload, role='test')
+        if df is None:
+            df = self._payload_to_df(payload, role='val')
+        if df is None:
+            df = self._payload_to_df(payload)
+        return df
+
+    def _extract_models_from_payload(self, payload):
+        models = payload.get('models', {}) or {}
+
+        selected = models.get('selected')
+        if isinstance(selected, dict) and selected:
+            return selected
+
+        all_models = models.get('all') or models.get('all_models')
+        if isinstance(all_models, dict) and all_models:
+            return all_models
+
+        best = models.get('best')
+        if isinstance(best, dict) and best:
+            return best
+
+        return {}
+
+    def _apply_workflow_payload(self, payload):
+        self.models = self._extract_models_from_payload(payload)
+        if self.data_payload is None:
+            self.data = self._get_workflow_default_df(payload)
+        self.read()
+
+    def _apply_external_data_payload(self, payload):
+        self.data = self._payload_to_df(payload)
+        self.read()
 
     def _build_output_payload(self, outputModels):
-        if self.input_payload is not None:
+        if self.input_payload is not None and self.data_payload is not None:
+            payload = PayloadManager.merge_payloads(
+                node_name=self.name,
+                input_payloads={'workflow': self.input_payload, 'eval_data': self.data_payload},
+                node_type='eval',
+                task='evaluate',
+                data_kind='model_bundle'
+            )
+        elif self.input_payload is not None:
             payload = PayloadManager.clone_payload(self.input_payload)
+            payload['node_name'] = self.name
+            payload['node_type'] = 'eval'
+            payload['task'] = 'evaluate'
+        elif self.data_payload is not None:
+            payload = PayloadManager.clone_payload(self.data_payload)
             payload['node_name'] = self.name
             payload['node_type'] = 'eval'
             payload['task'] = 'evaluate'
         else:
             payload = PayloadManager.empty_payload(node_name=self.name, node_type='eval', task='evaluate', data_kind='model_bundle')
         payload = PayloadManager.set_models(payload, selected=outputModels, all_models=self.models)
-        payload = PayloadManager.update_context(payload, workflow_stage='evaluate')
+        payload = PayloadManager.update_context(payload, workflow_stage='evaluate', eval_data_override=self.data_payload is not None)
         payload['legacy'].update({'selected_models': outputModels})
         return payload
 
@@ -167,7 +242,7 @@ class Widget(OWWidget):
                 for model in self.targetModels[target].keys():
                     key, model_obj = self.getModel(target, model)
                     outputModels[key] = model_obj
-        self.Outputs.models.send(outputModels)
+        # self.Outputs.models.send(outputModels)
         print(targets, scoreTypes)
         self.save(targets, scoreTypes)
         self.Outputs.payload.send(self._build_output_payload(outputModels))

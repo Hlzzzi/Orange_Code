@@ -38,12 +38,12 @@ class Widget(OWWidget):
 
     class Inputs:
         # 分层数据：通过【测井数据加载】控件【单文件选择】功能载入
-        data = Input("分层数据", list, auto_summary=False)
-        payload = Input("payload", dict, auto_summary=False)
+        # data = Input("分层数据", list, auto_summary=False)
+        payload = Input("数据(data)", dict, auto_summary=False)
 
     data: pandas.DataFrame = None
 
-    @Inputs.data
+    # @Inputs.data
     def set_data(self, data):
         if data:
             self.data: pandas.DataFrame = table_to_frame(data[0])
@@ -72,10 +72,10 @@ class Widget(OWWidget):
 
     class Outputs:
         # if there are two or more outputs, default=True marks the default output
-        table = Output("分层数据Table", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
-        data = Output("分层数据List", list, auto_summary=False)  # 输出给【分层数据处理】控件
-        raw = Output("分层数据Dict", dict, auto_summary=False)  # 带有用户设置的输出，输出给【岩心自动归位】控件
-        payload = Output("payload", dict, auto_summary=False)
+        # table = Output("分层数据Table", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
+        # data = Output("分层数据List", list, auto_summary=False)  # 输出给【分层数据处理】控件
+        # raw = Output("分层数据Dict", dict, auto_summary=False)  # 带有用户设置的输出，输出给【岩心自动归位】控件
+        payload = Output("数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
@@ -171,12 +171,12 @@ class Widget(OWWidget):
         self.save(result)
 
         # 发送
-        self.Outputs.table.send(table_from_frame(result))
-        self.Outputs.data.send([table_from_frame(result)])
+        # self.Outputs.table.send(table_from_frame(result))
+        # self.Outputs.data.send([table_from_frame(result)])
         raw = {self.dict_output_data_key: result, self.dict_output_wellname_key: self.output_wellname_col,
              self.dict_output_top_key: self.output_top_col, self.dict_output_bot_key: self.output_bot_col,
              self.dict_output_zone_key: self.output_zone_col, self.dict_output_target_key: self.target_list}
-        self.Outputs.raw.send(raw)
+        # self.Outputs.raw.send(raw)
         out = self.build_output_payload(result, raw)
         self.Outputs.payload.send(out)
 
