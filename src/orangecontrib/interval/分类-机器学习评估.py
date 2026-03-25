@@ -439,7 +439,7 @@ class Widget(OWWidget):
         # PRtable = Output("预测表", Table, auto_summary=False)  # 输出预测
 
         # canshu = Output("参数", dict, auto_summary=False)  # 输出数据
-        payload = Output("数据(data)", dict, auto_summary=False)
+        payload = Output("模型(model)", dict, auto_summary=False)
 
     save_radio = Setting(2)
 

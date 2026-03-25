@@ -35,8 +35,8 @@ class Widget(OWWidget):
         # dataA = Input("实验数据", list, "set_dataA", auto_summary=False)
         # 页岩油分层处理数据：通过【测井数据加载】控件载入
         # dataB = Input("分层处理数据", list, "set_dataB", auto_summary=False)
-        payloadA = Input("实验数据(data)", dict, auto_summary=False)
-        payloadB = Input("分层处理数据(data)", dict, auto_summary=False)
+        payloadA = Input("岩心数据(data)", dict, auto_summary=False)
+        payloadB = Input("分层数据(data)", dict, auto_summary=False)
 
     dataA: Table = None
     dataB: Table = None

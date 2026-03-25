@@ -31,7 +31,7 @@ class lasdata(widget.OWWidget):
     """
 
     # 01 基础属性
-    name = "测井数据加载"
+    name = "产量数据加载"
     id = "orange.widgets.import_data.las"
     description = " "
     icon = "icons/File.svg"
@@ -193,7 +193,7 @@ class lasdata(widget.OWWidget):
 
     # 统一输出 payload
     class Outputs:
-        payload = Output("数据(data)", dict, auto_summary=False)
+        payload = Output("产量数据(data)", dict, auto_summary=False)
 
     def _reset_runtime_state(self):
         """

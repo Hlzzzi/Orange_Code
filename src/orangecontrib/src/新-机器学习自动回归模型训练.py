@@ -150,7 +150,7 @@ class Widget(OWWidget):
             # if there are two or more outputs, default=True marks the default output
         # best_models = Output("Best_Models", dict, default=True, auto_summary=False)
         # all_models = Output("All_Models", dict, auto_summary=False)
-        payload = Output("数据(data)", dict, auto_summary=False)
+        payload = Output("模型(model)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):

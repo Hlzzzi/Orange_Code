@@ -108,7 +108,7 @@ class Widget(OWWidget):
     class Outputs:
         # if there are two or more outputs, default=True marks the default output
         # models = Output("Selected_Models", dict, auto_summary=False)
-        payload = Output("数据(data)", dict, auto_summary=False)
+        payload = Output("模型(model)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):

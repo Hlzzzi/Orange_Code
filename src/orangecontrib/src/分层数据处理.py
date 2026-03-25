@@ -75,7 +75,7 @@ class Widget(OWWidget):
         # table = Output("分层数据Table", Table, default=True)  # 纯数据Table输出，用于与Orange其他部件交互
         # data = Output("分层数据List", list, auto_summary=False)  # 输出给【分层数据处理】控件
         # raw = Output("分层数据Dict", dict, auto_summary=False)  # 带有用户设置的输出，输出给【岩心自动归位】控件
-        payload = Output("数据(data)", dict, auto_summary=False)
+        payload = Output("分层数据(data)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):

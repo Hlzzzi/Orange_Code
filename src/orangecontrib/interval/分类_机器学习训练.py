@@ -138,7 +138,7 @@ class Widget(OWWidget):
         # All_model_path = Output("All_Model_Path", str, auto_summary=False)
 
         # Canshu = Output("参数", dict, auto_summary=False)
-        payload = Output("数据(data)", dict, auto_summary=False)
+        payload = Output("模型(model)", dict, auto_summary=False)
 
     @gui.deferred
     def commit(self):
