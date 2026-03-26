@@ -1,21 +1,28 @@
-PyBinPath = python
+PyBinPath ?= python3
 requirePyVer = 3.8
 PIP_INDEX = https://pypi.tuna.tsinghua.edu.cn/simple
+packageSitePkgs = $(CURDIR)/venv/Lib/site-packages
 
-ifeq ($(OS),Windows_NT)
-  venvPy = powershell $(CURDIR)/venv/Scripts/python.exe
-  venvPip = powershell $(CURDIR)/venv/Scripts/python.exe -m pip
-  rmCmd = rmdir /s /q
+ifeq (,$(wildcard $(CURDIR)/venv/Scripts/python.exe))
+  ifeq ($(OS),Windows_NT)
+    venvPy = powershell $(CURDIR)/venv/Scripts/python.exe
+    venvPip = powershell $(CURDIR)/venv/Scripts/python.exe -m pip
+    rmCmd = rmdir /s /q
+  else
+    venvPy = $(CURDIR)/venv/bin/python
+    venvPip = $(CURDIR)/venv/bin/python -m pip
+    rmCmd = rm -rf
+  endif
 else
-  venvPy = $(CURDIR)/venv/bin/python
-  venvPip = $(CURDIR)/venv/bin/python -m pip
+  venvPy = $(CURDIR)/venv/Scripts/python.exe
+  venvPip = $(CURDIR)/venv/Scripts/python.exe -m pip
   rmCmd = rm -rf
 endif
 
 pyVer = $(shell $(PyBinPath) --version)
 verCheck = $(findstring $(requirePyVer),$(pyVer))
 
-.PHONY: go install uninstall run init clone venv_create dep clean package
+.PHONY: go install uninstall run init clone venv_create dep clean package package_dist package_legacy
 
 go: install run
 
@@ -62,5 +69,15 @@ clean:
 	$(rmCmd) orange3
 	$(rmCmd) venv
 
-package:
-	git archive -o jtdsj.zip --prefix=jtdsj/ HEAD:src/orangecontrib/src/
+package: package_dist package_legacy
+
+package_dist:
+ifeq (,$(wildcard $(packageSitePkgs)/wheel))
+	cd src && $(venvPy) setup.py sdist bdist_wheel
+else
+	cd src && PYTHONPATH=$(packageSitePkgs) python3 setup.py sdist bdist_wheel
+endif
+
+package_legacy:
+	rm -f jtdsj-legacy.zip
+	cd src && python3 -c "import pathlib, zipfile; root = pathlib.Path('orangecontrib'); zf = zipfile.ZipFile('../jtdsj-legacy.zip', 'w', zipfile.ZIP_DEFLATED); [zf.write(path, path.as_posix()) for path in root.rglob('*') if path.is_file() and '__pycache__' not in path.parts and path.suffix not in {'.pyc', '.pyo'}]; zf.close()"

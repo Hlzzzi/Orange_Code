@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+from collections import defaultdict
 from os import path, walk
 
 from setuptools import find_packages, setup
@@ -28,10 +29,69 @@ KEYWORDS = (
 
 PACKAGES = find_packages()
 
-PACKAGE_DATA = {
-    "orangecontrib.example": ["tutorials/*.ows"],
-    "orangecontrib.example.widgets": ["icons/*"],
+PACKAGE_DATA_EXTENSIONS = {
+    ".xlsx",
+    ".xls",
+    ".csv",
+    ".txt",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".svg",
+    ".tif",
+    ".tiff",
+    ".pbm",
+    ".pgm",
+    ".ppm",
+    ".pnm",
+    ".xbm",
+    ".xpm",
+    ".ows",
+    ".model",
+    ".pkl",
+    ".pickle",
+    ".qss",
+    ".ico",
 }
+
+
+def collect_package_data(package_root):
+    package_data = defaultdict(list)
+
+    for dirpath, _, filenames in walk(package_root):
+        rel_dir = path.relpath(dirpath, package_root)
+        if rel_dir == ".":
+            rel_dir = ""
+
+        parts = [part for part in rel_dir.split(path.sep) if part]
+        package_name = None
+        resource_prefix = ""
+
+        for idx in range(len(parts), -1, -1):
+            candidate = ".".join(["orangecontrib"] + parts[:idx])
+            if candidate in PACKAGES:
+                package_name = candidate
+                resource_prefix = path.join(*parts[idx:]) if idx < len(parts) else ""
+                break
+
+        if package_name is None:
+            continue
+
+        for filename in filenames:
+            if path.splitext(filename)[1].lower() not in PACKAGE_DATA_EXTENSIONS:
+                continue
+            resource_path = path.join(resource_prefix, filename) if resource_prefix else filename
+            package_data[package_name].append(resource_path)
+
+    return dict(package_data)
+
+
+PACKAGE_DATA = collect_package_data(path.join(path.dirname(__file__), "orangecontrib"))
 
 DATA_FILES = [
     # Data files that will be installed outside site-packages folder
@@ -113,5 +173,6 @@ if __name__ == "__main__":
         entry_points=ENTRY_POINTS,
         keywords=KEYWORDS,
         namespace_packages=NAMESPACE_PACKAGES,
+        include_package_data=True,
         zip_safe=False,
     )

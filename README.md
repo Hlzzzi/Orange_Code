@@ -41,12 +41,13 @@
 7. `make venv_create`: 创建虚拟环境
 8. `make dep`: 根据 requirements.txt (重新)安装依赖
 9. `make clean`: 删除 orange3 目录及虚拟环境
-10. `make package`: 打包交付文件
+10. `make package`: 同时生成标准安装包和兼容源码包
 
 ## 交付
 
-1. 首先确认所有代码更新已 commit (未提交的更改不会被打包)
-2. 执行 `make package` 生成 `jtdsj.zip` 压缩包
-3. 将 `jtdsj.zip` 交付给客户，解压至客户环境的 `orange3/Orange/widgets` 目录下
-4. 修改 `orange3/Orange/widgets/__init__.py`，在 `widget_discovery` 函数的 `pkgs` 列表中添加一行 `"Orange.widgets.jtdsj"` 以导入我们的小部件
-5. 重启 Orange，即可在小部件列表中找到我们的小部件
+1. 执行 `make package`
+2. 标准安装包会输出到 `src/dist/`，兼容源码包会输出为仓库根目录下的 `jtdsj-legacy.zip`
+3. 推荐将 `src/dist/` 下的 wheel 交付到目标环境，并执行 `pip install add_on-0.2.0-py3-none-any.whl`
+4. 安装完成后重启 Orange，控件会自动注册
+5. 若目标环境无法使用 `pip`，再使用 `jtdsj-legacy.zip` 做兼容迁移
+6. 详细步骤见 `docs/移植操作指南.md`
